@@ -18,6 +18,7 @@ from pysheds.grid import Grid
 from scipy import ndimage
 import pandas as pd
 from matplotlib import colors
+import warnings
 
 def dem_from_mml(outpath, subset, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=False, cmap='terrain'):
 
@@ -263,6 +264,7 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
     if not os.path.exists(outpath):
         os.makedirs(outpath)
     raster, path = dem_from_mml(outpath=outpath, subset=subset, scalefactor=0.125)
+    warnings.simplefilter("ignore", UserWarning)
 
     raster = xr.open_rasterio(path)
     grid = Grid.from_raster(path)
@@ -323,7 +325,8 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
                norm=colors.LogNorm(1, acc.max()),
                interpolation='bilinear', alpha=0.1)
         plt.ylabel('Latitude')
-        plt.title('Delineated Catchment', size=14)
+        plt.xlabel('Longitude')
+        plt.title(f'Delineated {catchment_name} catchment', size=14)
 
 
 
