@@ -14,7 +14,7 @@ import seaborn as sns
 import xarray as xr
 import os
 from scipy import ndimage
-
+eps = np.finfo(float).eps
 # inputs
 subset = [370000,7537500,390000,7557500]
 catchment_name = 'Ylisenpaanjankka' # Pallasjoki, Lompolonjankka, Ylisenpaanjankka, Lompolonoja, Pyhajoki
@@ -65,15 +65,21 @@ inflated_dem = grid.resolve_flats(flooded_dem)
 # Determine D8 flow directions from DEM
 # ----------------------
 # Specify directional mapping
-dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
+dirmap = (64, 128, 1, 2, 4, 8, 16, 32) # [N, NE, E, SE, S, SW, W, NW]
 
 # Compute flow directions
 # -------------------------------------
 fdir = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
+slope = grid.cell_slopes(inflated_dem, fdir)
+aspect = grid.flowdir(inflated_dem, dirmap=dirmap, routing='d8')
 
 # Calculate flow accumulation
 # --------------------------
 acc = grid.accumulation(fdir, dirmap=dirmap, routing=routing)
+cell_area = dem.affine[0] * dem.affine[0]
+acc_new = acc.copy() + 1
+
+twi = np.log(acc_new / (np.tan(slope) + eps))
 
 # Saving the processed dem
 grid.to_ascii(inflated_dem, os.path.join(outpath, 'inflated_dem.asc'))

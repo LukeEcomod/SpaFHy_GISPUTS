@@ -98,7 +98,7 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
         plot = whether or not to plot the created raster, True/False
         cmap = colormap for plotting (str - default = 'terrain')
         '''
-    scalefactorstr = f'SCALEFACTOR={scalefactor}'
+
 
     # The base url for maanmittauslaitos
     url = 'https://beta-karttakuva.maanmittauslaitos.fi/ortokuvat-ja-korkeusmallit/wcs/v1?'
@@ -108,8 +108,8 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
                   request='request=GetCoverage',
                   CoverageID=f'CoverageID={layer}',
                   SUBSET=f'SUBSET=E({subset[0]},{subset[2]})&SUBSET=N({subset[1]},{subset[3]})',
-                  outformat=f'format={form}',
-                  scalefactor=scalefactorstr)
+                  outformat=f'format={form}')
+
 
     par_url = ''
     for par in params.keys():
@@ -151,7 +151,6 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
     raster_dem = rasterio.open(out_fp)
 
     return raster_dem, out_fp
-
 
 
 def read_AsciiGrid(fname, setnans=True):
@@ -231,7 +230,7 @@ def write_AsciiGrid_new(fname, data, info, fmt='%.18e'):
     IN:
         fname - filename
         data - data (numpy array)
-        info - info-rows (list, 6rows)
+        info - info dictionary
         fmt - output formulation coding
 
     Samuli Launiainen Luke 7.9.2016
@@ -254,8 +253,10 @@ def write_AsciiGrid_new(fname, data, info, fmt='%.18e'):
     np.savetxt(fid, data, fmt=fmt, delimiter=' ')
     fid.close()
 
-def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing='d8', dem_scale=0.125, plot_catchment=True):
+def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_file, clip_catchment=False, routing='d8', plot_catchment=True):
 
+    print('')
+    print('*** Delineating', catchment_name, 'catchment ***')
     outlets = pd.read_csv(outlet_file, sep=';', encoding = "ISO-8859-1")
     outlet_x = float(outlets.loc[outlets['stream'] == catchment_name, 'lon'])
     outlet_y = float(outlets.loc[outlets['stream'] == catchment_name, 'lat'])
@@ -263,12 +264,11 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
     outpath = os.path.join(outfolder, catchment_name)
     if not os.path.exists(outpath):
         os.makedirs(outpath)
-    raster, path = dem_from_mml(outpath=outpath, subset=subset, scalefactor=0.125)
     warnings.simplefilter("ignore", UserWarning)
 
-    raster = xr.open_rasterio(path)
-    grid = Grid.from_raster(path)
-    dem = grid.read_raster(path)
+    #raster = xr.open_rasterio(dem_path)
+    grid = Grid.from_raster(dem_path)
+    dem = grid.read_raster(dem_path)
 
     pit_filled_dem = grid.fill_pits(dem)
     flooded_dem = grid.fill_depressions(pit_filled_dem)
@@ -277,10 +277,12 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
     dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
     fdir = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
     acc = grid.accumulation(fdir, dirmap=dirmap, routing=routing)
+    aspect = grid.flowdir(inflated_dem, dirmap=dirmap, routing='d8')
+    slope = grid.cell_slopes(inflated_dem, fdir)
 
-    grid.to_ascii(inflated_dem, os.path.join(outpath, f'inflated_dem_{catchment_name}.asc'))
-    grid.to_ascii(fdir, os.path.join(outpath, f'fdir_{routing}_{catchment_name}.asc'))
-    grid.to_ascii(acc, os.path.join(outpath, f'acc_{routing}_{catchment_name}.asc'))
+    eps = np.finfo(float).eps
+
+    twi = np.log((acc+1) / (np.tan(slope) + eps))
 
     # Snap pour point to high accumulation cell
     x_snap, y_snap = grid.snap_to_mask(acc > 1000, (outlet_x, outlet_y))
@@ -289,27 +291,31 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
     catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, dirmap=dirmap,
                        xytype='coordinate', routing=routing)
 
+    if clip_catchment == True:
     # Crop and plot the catchment
     # ---------------------------
     # Clip the bounding box to the catchment
-    #grid.clip_to(catch)
-    #clipped_catch = grid.view(catch)
+        grid.clip_to(catch)
+        clipped_catch = grid.view(catch)
 
-    cmask_temp = np.ones(shape=catch.shape)
-    cmask_temp[catch == False] = 0
-    cmask_temp = ndimage.binary_fill_holes(cmask_temp).astype(int)
-    cmask = np.ones(shape=cmask_temp.shape)
-    cmask[cmask_temp == 0] = int(-9999)
+    else:
+        clipped_catch = catch
 
-    info = {'ncols':dem.shape[0],
-        'nrows':dem.shape[1],
-        'xllcorner':dem.bbox[0],
-        'yllcorner':dem.bbox[1],
-        'cellsize':dem.affine[0],
+    #cmask_temp = np.ones(shape=clipped_catch.shape)
+    #cmask_temp[clipped_catch == False] = 0
+    #cmask_temp = ndimage.binary_fill_holes(cmask_temp).astype(int)
+    #cmask = np.ones(shape=cmask_temp.shape)
+    #cmask[cmask_temp == 0] = int(-9999)
+
+    info = {'ncols':clipped_catch.shape[0],
+        'nrows':clipped_catch.shape[1],
+        'xllcorner':clipped_catch.bbox[0],
+        'yllcorner':clipped_catch.bbox[1],
+        'cellsize':clipped_catch.affine[0],
         'NODATA_value':-9999}
 
-    fname=os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc')
-    write_AsciiGrid_new(fname, cmask, info)
+    #fname=os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc')
+    #write_AsciiGrid_new(fname, cmask, info)
 
     if plot_catchment == True:
         # Plot the catchment
@@ -317,16 +323,29 @@ def delineate_catchment(outfolder, catchment_name, subset, outlet_file, routing=
         fig.patch.set_alpha(0)
 
         plt.grid('on', zorder=0)
-        im = ax.imshow(np.where(catch, catch, np.nan), extent=grid.extent,
-               zorder=1, cmap='Greys_r', alpha=0.3)
-        raster.plot(ax=ax, vmin=200, vmax=600)
-        ax.imshow(acc, extent=grid.extent, zorder=2,
+        ax.imshow(dem, extent=clipped_catch.extent, cmap='terrain', zorder=1)
+
+        ax.imshow(np.where(clipped_catch, clipped_catch, np.nan), extent=grid.extent,
+               zorder=1, cmap='Greys_r', alpha=0.5)
+        #ax.imshow(cmask, alpha=0.3)
+        #raster.plot(ax=ax, vmin=200, vmax=600)
+        ax.imshow(acc, extent=clipped_catch.extent, zorder=2,
                cmap='cubehelix',
                norm=colors.LogNorm(1, acc.max()),
                interpolation='bilinear', alpha=0.1)
         plt.ylabel('Latitude')
         plt.xlabel('Longitude')
         plt.title(f'Delineated {catchment_name} catchment', size=14)
+
+        grid.to_ascii(clipped_catch, os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc'))
+        grid.to_ascii(inflated_dem, os.path.join(outpath, f'inflated_dem_{catchment_name}.asc'))
+        grid.to_ascii(fdir, os.path.join(outpath, f'fdir_{routing}_{catchment_name}.asc'))
+        grid.to_ascii(acc, os.path.join(outpath, f'acc_{routing}_{catchment_name}.asc'))
+        grid.to_ascii(slope, os.path.join(outpath, f'slope_{routing}_{catchment_name}.asc'))
+        grid.to_ascii(aspect, os.path.join(outpath, f'aspect_{routing}_{catchment_name}.asc'))
+        grid.to_ascii(twi, os.path.join(outpath, f'twi_{routing}_{catchment_name}.asc'))
+        print('***', catchment_name, 'catchment is delineated and DEM derivatives are saved ***')
+
 
 
 
