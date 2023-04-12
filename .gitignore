@@ -4,13 +4,19 @@ apikey.txt
 __pycache__/
 *.py[cod]
 *$py.class
+.pylint.d
 
 # Spyder project settings
 .spyderproject
 .spyproject
 
+# Jupyterproject settings
+.jupyter/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
+
 # pyenv
 .python-version
+
