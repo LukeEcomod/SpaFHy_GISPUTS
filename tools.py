@@ -321,13 +321,16 @@ def write_AsciiGrid_new(fname, data, info, fmt='%.18e'):
     np.savetxt(fid, data, fmt=fmt, delimiter=' ')
     fid.close()
 
-def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_file, clip_catchment=False, routing='d8', plot_catchment=True):
+def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_file, clip_catchment=False, snap=True, routing='d8', plot_catchment=True):
 
     print('')
     print('*** Delineating', catchment_name, 'catchment ***')
     outlets = pd.read_csv(outlet_file, sep=';', encoding = "ISO-8859-1")
-    outlet_x = float(outlets.loc[outlets['stream'] == catchment_name, 'lon'])
-    outlet_y = float(outlets.loc[outlets['stream'] == catchment_name, 'lat'])
+    #outlet_x = float(outlets.loc[outlets['stream'] == catchment_name, 'lon'])
+    #outlet_y = float(outlets.loc[outlets['stream'] == catchment_name, 'lat'])
+
+    outlet_x = outlets.loc[outlets['stream'] == catchment_name, 'lon'].values[0]
+    outlet_y = outlets.loc[outlets['stream'] == catchment_name, 'lat'].values[0]
 
     outpath = os.path.join(outfolder, catchment_name)
     if not os.path.exists(outpath):
@@ -353,7 +356,10 @@ def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_fil
     twi = np.log((acc+1) / (np.tan(slope) + eps))
 
     # Snap pour point to high accumulation cell
-    x_snap, y_snap = grid.snap_to_mask(acc > 1000, (outlet_x, outlet_y))
+    if snap == True:
+        x_snap, y_snap = grid.snap_to_mask(acc > 100, (outlet_x, outlet_y))
+    else:
+        x_snap, y_snap = outlet_x, outlet_y
 
     # Delineate the catchment
     catch_full = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, dirmap=dirmap,
