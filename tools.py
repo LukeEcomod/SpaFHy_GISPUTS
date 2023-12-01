@@ -420,8 +420,11 @@ def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_fil
         print('***', catchment_name, 'catchment is delineated and DEM derivatives are saved ***')
 
 
-def fill_cmask_holes(fp, fmt='%.18e', plot=True):
-    
+def fill_cmask_holes(fp, fmt='%i', plot=True):
+    '''
+    for float fmt='%.18e'
+    for int fmt='%i'
+    '''
     # new filename
     fn = fp[0:-4]+'_fill.asc'
 
@@ -434,19 +437,21 @@ def fill_cmask_holes(fp, fmt='%.18e', plot=True):
     
     # filling the holes 
     new_arr = ndimage.binary_fill_holes(arr).astype(int)
-    new_arr = new_arr.astype('float')
     
     # assigning zeros to -9999 and plotting
-    new_arr = np.where(new_arr==0, -9999, 1)
+    new_arr = np.where(new_arr==0, int(-9999), int(1))
+    #print(new_arr)
     plt.imshow(np.where(new_arr==-9999, np.nan, 1))    
     plt.show()
+    write_AsciiGrid(fn, new_arr, old_cmask[1])
     # writing the new cmask file
-    fid = open(fn, 'w')
-    for i in range(len(old_cmask[1])):
-        fid.write(old_cmask[1][i]) 
-    fid.close()
-    fid = open(fn, 'a')
-    np.savetxt(fid, new_arr, fmt=fmt, delimiter=' ')
+    #fid = open(fn, 'w')
+    #for i in range(len(old_cmask[1])):
+    #    fid.write(old_cmask[1][i]) 
+    #fid.close()
+    #fid = open(fn, 'a')
+    #np.savetxt(fid, new_arr, fmt=fmt, delimiter=' ')
+    #np.savetxt(fid, new_arr.astype(int), fmt=fmt, delimiter=' ')
 
 
 
