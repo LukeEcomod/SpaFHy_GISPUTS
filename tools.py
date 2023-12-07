@@ -6,10 +6,16 @@ Created on Mon Nov 28 10:05:11 2022
 """
 
 import os
+import glob
 import urllib
 import rasterio
 from numpy import newaxis
+import rasterio
+import rasterio.plot
+from rasterio import features
+from rasterio.windows import from_bounds
 from rasterio.plot import show
+from rasterio.enums import Resampling
 import matplotlib.pyplot as plt
 import xarray as xr
 import numpy as np
@@ -18,7 +24,7 @@ from scipy import ndimage
 import pandas as pd
 from matplotlib import colors
 import warnings
-
+import geopandas as gpd
 
 def dem_from_mml_beta(outpath, subset, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=False, cmap='terrain'):
 
@@ -150,10 +156,95 @@ def dem_from_mml(outpath, subset, apikey, layer='korkeusmalli_2m', form='image/t
         dest.write(raster_dem)
 
     raster_dem = rasterio.open(out_fp)
-
     return raster_dem, out_fp
 
+def dem_from_puhti_2m(fp, subset, out_fp, plot=True, save_in='geotiff'):
+    '''
+    fp = file path to be downloaded
+    subset = cropping to coordinate box
+    out_fp = file path to be saved
+    plot = show the raster
+    '''
+    with rasterio.open(fp) as src:
+        data = src.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform))
+        profile = src.profile
 
+    out_meta = profile.copy()
+    
+    new_affine = rasterio.Affine(out_meta['transform'][0], 
+                                 out_meta['transform'][1], 
+                                 subset[0], 
+                                 out_meta['transform'][3], 
+                                 out_meta['transform'][4], 
+                                 subset[3])
+    # Update the metadata
+    out_meta.update({"driver": "GTiff",
+                    "height": data.shape[0],
+                    "width": data.shape[1],
+                    "transform": new_affine,
+                    "crs": profile['crs']
+                        }
+                    )
+    if save_in=='asc':
+        out_meta.update({"driver": "AAIGrid"})
+    
+    with rasterio.Env():
+        # Write an array as a raster band to a new 8-bit file. For
+        # the new file's profile, we start with the profile of the source
+        # And then change the band count to 1, set the
+        # dtype to uint8, and specify LZW compression.
+        with rasterio.open(out_fp, 'w', **out_meta) as dst:
+            src = dst.write(data, 1)
+            if plot==True:
+                plt.imshow(data)
+                #show(src)
+            # At the end of the ``with rasterio.Env()`` block, context
+            # manager exits and all drivers are de-registered
+    
+    raster_dem = rasterio.open(out_fp)
+    if plot==True:
+        show(raster_dem)
+        
+    return raster_dem, out_fp    
+
+def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'):
+    '''
+    fp = file path to be downloaded
+    out_fp = file path to be saved
+    scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125   
+    '''
+    
+    with rasterio.open(fp) as dataset:
+        
+        # resample data to target shape
+        data = dataset.read(1, 
+                out_shape=(dataset.count,int(dataset.height * scale_factor),int(dataset.width * scale_factor)),
+                resampling=Resampling.bilinear
+                )
+
+        # scale image transform
+        transform = dataset.transform * dataset.transform.scale(
+            (dataset.width / data.shape[-1]),
+            (dataset.height / data.shape[-2])
+        )    
+        out_meta = dataset.profile.copy()
+
+        out_meta.update({"driver": "GTiff",
+                 "height": data.shape[0],
+                  "width": data.shape[1],
+                  "transform": transform,
+                        }
+                    )
+        if save_in=='asc':
+            out_meta.update({"driver": "AAIGrid"})
+        
+        with rasterio.open(out_fp, 'w', **out_meta) as dst:
+            src = dst.write(data, 1)
+            
+    raster = rasterio.open(out_fp)
+    if plot==True:
+        show(raster)
+    return raster, out_fp
 
 def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', scalefactor=0.01, plot=False):
 
@@ -220,7 +311,169 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
     return raster_dem, out_fp
 
+def vmi_from_puhti(fd, subset, out_fd, layer='all', plot=True, save_in='geotiff'):
+    if layer=='all':
+        p = os.path.join(fd, '*.img')
+    else:
+        p = os.path.join(fd, layer)
 
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+        
+    for file in glob.glob(p):
+        print(file)
+        out_fn = file.rpartition('/')[-1][:-4]
+        if save_in == 'geotiff':
+            out_fp = os.path.join(out_fd, out_fn) + '.tif'
+        elif save_in == 'asc':
+            out_fp = os.path.join(out_fd, out_fn) + '.asc'
+
+        with rasterio.open(file) as src:
+            data = src.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform))
+            profile = src.profile
+            out_meta = src.profile.copy()
+
+            new_affine = rasterio.Affine(out_meta['transform'][0], 
+                                         out_meta['transform'][1], 
+                                         subset[0], 
+                                         out_meta['transform'][3], 
+                                         out_meta['transform'][4], 
+                                         subset[3])
+            
+            if len(data.flatten()[data.flatten() == 32766]) > 0:
+                print('*** Data has', len(data.flatten()[data.flatten() == 32766]), 'nan values (=32766) ***')
+                print('--> converted to 0 ***')
+            if len(data.flatten()[data.flatten() == 32767]) > 0:
+                print('*** Data has', len(data.flatten()[data.flatten() == 32767]), 'non land values (=32767) ***')
+                print('--> converted to 0 ***')
+            data[data > 32765] = 0
+
+            # Update the metadata for geotiff
+            out_meta.update({"driver": "GTiff",
+                             "height": data.shape[0],
+                             "width": data.shape[1],
+                              "transform": new_affine,
+                              "nodata": -9999})
+            
+            if save_in == 'asc':
+                out_meta.update({"driver": "AAIGrid"})
+                
+            with rasterio.Env():
+                with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
+                    src = dst.write(data, 1)
+    
+        if plot==True:
+            raster = rasterio.open(out_fp)
+            show(raster, vmax=100)
+
+def needlemass_to_lai(in_fn, out_fd, species, save_in='asc', plot=True):
+    
+    SLA = {'pine': 6.8, 'spruce': 4.7, 'decid': 14.0}
+
+    bm_raster = rasterio.open(in_fn)
+    bm_data = bm_raster.read(1)
+    
+    LAI = bm_data * 1e-3 * SLA[species]
+
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+    
+    out_meta = bm_raster.meta.copy()
+
+    print(bm_raster.meta)
+
+    if save_in == 'geotiff':
+        out_fn = os.path.join(out_fd, f'LAI_{species}') + '.tif'
+        out_meta.update({"driver": "GTiff"})        
+    elif save_in == 'asc':
+        out_fn = os.path.join(out_fd, f'LAI_{species}') + '.asc'
+        out_meta.update({"driver": "AAIGrid"})
+
+    with rasterio.open(out_fn, 'w+', **out_meta) as out:
+            src = out.write(LAI, 1)
+    if plot==True:
+        raster = rasterio.open(out_fn)
+        show(raster)
+
+def soilmap_from_puhti(soilmap, subset, out_fd, ref_raster, soildepth='surface', plot=True, save_in='geotiff'):
+    '''
+    Soilmap 1:20 000
+    1: Kalliomaa, 2: Sora, 3: Hiekkamoreeni, 4: Hiekka, 
+    5: karkea Hieta , 6: hieno Hieta, 7: Hiesu, 8: Saraturve, 9: Rahkaturve, 10: Vesi
+    Soilmap 1:200 000
+    1: Kalliomaa, 2: Kalliopaljastuma, 3: Karkearakeinen maalaji, 4: Sekalajitteinen maalaji ,
+    5: Hienojakoinen maalaji, 6: Soistuma, 7: Ohut turvekerros, 8: Paksu turvekerros, 9: Vesi
+    '''
+    if soilmap == 200:
+        soilfile = r'/projappl/project_2000908/geodata/soil/mp200k_maalajit.shp'
+    elif soilmap == 20:
+        soilfile = r'/projappl/project_2000908/geodata/soil/mp20k_maalajit.shp'
+
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+    
+    mpk = {}
+    if soilmap == 20:
+        mpk[195111.0] = 1 # Kalliomaa
+        mpk[195313.0] = 2 # Sora
+        mpk[195214.0] = 3 # Hiekkamoreeni
+        mpk[195314.0] = 4 # Hiekka
+        mpk[195315.0] = 5 # karkea Hieta 
+        mpk[195411.0] = 6 # hieno Hieta
+        mpk[195412.0] = 7 # Hiesu
+        mpk[195512.0] = 8 # Saraturve
+        mpk[195513.0] = 9 # Rahkaturve
+        mpk[195603.0] = 10 # Vesi
+    elif soilmap == 200:
+        mpk = {}
+        mpk[195111.0] = 1 # Kalliomaa
+        mpk[195110.0] = 2 # Kalliopaljastuma
+        mpk[195310.0] = 3 # Karkearakeinen maalaji
+        mpk[195210.0] = 4 # Sekalajitteinen maalaji 
+        mpk[195410.0] = 5 # Hienojakoinen maalaji
+        mpk[19551822.0] = 6 # Soistuma
+        mpk[19551891.0] = 7 # Ohut turvekerros
+        mpk[19551892.0] = 8 # Paksu turvekerros
+        mpk[195603.0] = 9 # Vesi
+
+    soil = gpd.read_file(soilfile, include_fields=["PINTAMAALA", "PINTAMAA_1", "POHJAMAALA", "POHJAMAA_1", "geometry"], bbox=subset)
+    soil.PINTAMAALA = soil.PINTAMAALA.astype("float64")
+    soil.POHJAMAALA = soil.POHJAMAALA.astype("float64")
+    
+    if save_in == 'geotiff':
+        out_fn = os.path.join(out_fd, f'{soildepth}{soilmap}') + '.tif'
+    elif save_in == 'asc':
+        out_fn = os.path.join(out_fd, f'{soildepth}{soilmap}') + '.asc'
+
+    rst = rasterio.open(ref_raster)
+    meta = rst.meta.copy()
+    meta.update(compress='lzw')
+    if save_in == 'geotiff':
+        meta.update({"driver": "GTiff"})        
+    elif save_in == 'asc':
+        meta.update({"driver": "AAIGrid"})
+        
+    with rasterio.open(out_fn, 'w+', **meta) as out:
+        out_arr = out.read(1)
+
+        # this is where we create a generator of geom, value pairs to use in rasterizing
+        if soildepth=='surface':
+            shapes = ((geom,value) for geom, value in zip(soil.geometry, soil.PINTAMAALA))
+        if soildepth=='bottom':
+            shapes = ((geom,value) for geom, value in zip(soil.geometry, soil.POHJAMAALA))
+
+        burned = features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=out.transform)
+        burned[burned == 0] = -9999
+        for key in mpk.keys():
+            burned[burned == key] = mpk[key]
+        out.write_band(1, burned)
+        if plot==True:
+            raster = rasterio.open(out_fn)
+            show(raster)
+            
 def read_AsciiGrid(fname, setnans=True):
     """
     reads AsciiGrid format in fixed format as below:
@@ -388,6 +641,8 @@ def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_fil
         'cellsize':clipped_catch.affine[0],
         'NODATA_value':-9999}
 
+    subset = [clipped_catch.bbox[0], clipped_catch.bbox[1], clipped_catch.bbox[2], clipped_catch.bbox[3]]
+    
     #fname=os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc')
     #write_AsciiGrid_new(fname, cmask, info)
 
@@ -419,6 +674,7 @@ def delineate_catchment_from_dem(dem_path, catchment_name, outfolder, outlet_fil
         grid.to_ascii(twi, os.path.join(outpath, f'twi_{routing}_{catchment_name}.asc'), nodata=-9999)
         print('***', catchment_name, 'catchment is delineated and DEM derivatives are saved ***')
 
+        return subset
 
 def fill_cmask_holes(fp, fmt='%i', plot=True):
     '''
