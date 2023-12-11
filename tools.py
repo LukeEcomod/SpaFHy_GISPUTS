@@ -442,7 +442,7 @@ def maastolayer_to_raster(in_fn, out_fd, layer, ref_raster, save_in='asc', plot=
             show(raster)
 
 def create_catchment(fpath, 
-                     plotgrids=False, 
+                     plotgrids=True, 
                      plotdistr=False):
     """
     reads gis-data grids from catchment and returns numpy 2d-arrays
@@ -463,9 +463,9 @@ def create_catchment(fpath,
     
     # values to be set for 'open peatlands' and 'not forest land'
     nofor = {'vol': 0.1, 'ba': 0.01, 'height': 0.1, 'cf': 0.01, 'age': 0.0,
-             'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01}
+             'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01}
     opeatl = {'vol': 0.01, 'ba': 0.01, 'height': 0.1, 'cf': 0.1, 'age': 0.0,
-              'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01}
+              'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01, 'bmleaf': 0.01}
 
     # SLA = {'pine': 5.54, 'spruce': 5.65, 'decid': 18.46}  # m2/kg, Kellomäki et al. 2001 Atm. Env.
     SLA = {'pine': 6.8, 'spruce': 4.7, 'decid': 14.0}  # Härkönen et al. 2015 BER 20, 181-195
@@ -547,13 +547,17 @@ def create_catchment(fpath,
     """
     # Maastotietokanta water bodies: 1=waterbody
     stream[np.isfinite(stream)] = -1.0
+    # Maastotietokanta water bodies: 1=waterbody
+    lake[np.isfinite(lake)] = -1.0
     # maastotietokanta peatlandmask
     peatm[np.isfinite(peatm)] = 1.0
     # maastotietokanta kalliomaski
     rockm[np.isfinite(rockm)] = 1.0
-    # maastotietokanta peatmask
-    peatm[np.isfinite(peatm2)] = 1.0
-
+    # maastotietokanta peatmask2
+    peatm2[np.isfinite(peatm2)] = 1.0
+    # maastotietokanta roadmask
+    road[np.isfinite(road)] = -1.0
+    
     """
     gtk soilmap: read and re-classify into 4 texture classes
     #GTK-pintamaalaji grouped to 4 classes (Samuli Launiainen, Jan 7, 2017)
@@ -590,44 +594,74 @@ def create_catchment(fpath,
     Peats = [195512, 195513, 195514, 19551822, 19551891, 19551892]
     Water = [195603]
 
-    r, c = np.shape(surfsoil)
-    soil = np.ravel(surfsoil)
-    #del gtk_s
-
-    soil[np.in1d(soil, CoarseTextured)] = 1.0 
-    soil[np.in1d(soil, MediumTextured)] = 2.0
-    soil[np.in1d(soil, FineTextured)] = 3.0
-    soil[np.in1d(soil, Peats)] = 4.0
-    soil[np.in1d(soil, Water)] = -1.0
-    soil[soil == -1.0] = 2.0
-    soil[np.where(soil == 4.0) and np.where(peatm.flatten() != 1.0) and np.where(soil != 1.0)] = 2.0
-
+    # manipulating surface soil
+    rs, cs = np.shape(surfsoil)
+    topsoil = np.ravel(surfsoil)
+    topsoil[np.in1d(topsoil, CoarseTextured)] = 1.0 
+    topsoil[np.in1d(topsoil, MediumTextured)] = 2.0
+    topsoil[np.in1d(topsoil, FineTextured)] = 3.0
+    topsoil[np.in1d(topsoil, Peats)] = 4.0
+    topsoil[np.in1d(topsoil, Water)] = -1.0
+    topsoil[topsoil == -1.0] = 2.0
+    topsoil[np.where(topsoil == 4.0) and np.where(peatm.flatten() != 1.0) and np.where(topsoil != 1.0)] = 2.0
     # reshape back to original grid
-    soil = soil.reshape(r, c)
-    del r, c
-    soil[np.isfinite(peatm)] = 4.0
+    topsoil = topsoil.reshape(rs, cs)
+    del rs, cs
+    topsoil[np.isfinite(peatm)] = 4.0
+
+    # manipulating bottom soil
+    rb, cb = np.shape(botsoil)
+    lowsoil = np.ravel(botsoil)
+    lowsoil[np.in1d(lowsoil, CoarseTextured)] = 1.0 
+    lowsoil[np.in1d(lowsoil, MediumTextured)] = 2.0
+    lowsoil[np.in1d(lowsoil, FineTextured)] = 3.0
+    lowsoil[np.in1d(lowsoil, Peats)] = 4.0
+    lowsoil[np.in1d(lowsoil, Water)] = -1.0
+    lowsoil[lowsoil == -1.0] = 2.0
+    lowsoil[np.where(lowsoil == 4.0) and np.where(peatm.flatten() != 1.0) and np.where(lowsoil != 1.0)] = 2.0
+    # reshape back to original grid
+    lowsoil = lowsoil.reshape(rb, cb)
+    del rb, cb
+    lowsoil[np.isfinite(peatm)] = 4.0
 
     # update waterbody mask
-    ix = np.where(soil == -1.0)
+    ix = np.where(topsoil == -1.0)
     stream[ix] = -1.0
     stream[~np.isfinite(stream)] = 0.0
 
+    road[~np.isfinite(road)] = 0.0
+    lake[~np.isfinite(lake)] = 0.0
+
     # update catchment mask so that water bodies are left out (SL 20.2.18)
     #cmask[soil == -1.0] = np.NaN
-
 
     """ stand data (MNFI)"""
     
     # indexes for cells not recognized in mNFI
     ix_n = np.where((vol >= 32727) | (vol == -9999) )  # no satellite cover or not forest land: assign arbitrary values
     ix_p = np.where((vol >= 32727) & (peatm == 1))  # open peatlands: assign arbitrary values
-    ix_w = np.where((vol >= 32727) & (stream == -1))  # waterbodies: leave out
-    cmask[ix_w] = np.NaN  # NOTE: leaves waterbodies out of catchment mask
+    ix_w = np.where(((vol >= 32727) & (stream == -1)) | ((vol >= 32727) & (lake == -1)))  # waterbodies: leave out
+    #cmask[ix_w] = np.NaN  # NOTE: leaves waterbodies out of catchment mask
+
+    lowsoil[ix_w] = np.NaN
+    topsoil[ix_w] = np.NaN
 
     vol[ix_n] = nofor['vol']
     vol[ix_p] = opeatl['vol']
     vol[ix_w] = np.NaN
+    
+    p_vol[ix_n] = nofor['vol']
+    p_vol[ix_p] = opeatl['vol']
+    p_vol[ix_w] = np.NaN
 
+    s_vol[ix_n] = nofor['vol']
+    s_vol[ix_p] = opeatl['vol']
+    s_vol[ix_w] = np.NaN
+
+    b_vol[ix_n] = nofor['vol']
+    b_vol[ix_p] = opeatl['vol']
+    b_vol[ix_w] = np.NaN
+    
     ba[ix_n] = nofor['ba']
     ba[ix_p] = opeatl['ba']
     ba[ix_w] = np.NaN
@@ -647,9 +681,17 @@ def create_catchment(fpath,
     age[ix_w] = np.NaN
 
     # leaf biomasses and one-sided LAI
-    bmleaf_pine[ix_n]=np.NaN; 
-    bmleaf_spruce[ix_n]=np.NaN; 
-    bmleaf_decid[ix_n]=np.NaN;
+    bmleaf_pine[ix_n]=nofor['bmleaf']; 
+    bmleaf_pine[ix_p]=opeatl['bmleaf']; 
+    bmleaf_pine[ix_w]=np.NaN; 
+
+    bmleaf_spruce[ix_n]=nofor['bmleaf'];
+    bmleaf_spruce[ix_p]=opeatl['bmleaf']; 
+    bmleaf_spruce[ix_w]=np.NaN; 
+    
+    bmleaf_decid[ix_n]=nofor['bmleaf'];
+    bmleaf_decid[ix_p]=opeatl['bmleaf']; 
+    bmleaf_decid[ix_w]=np.NaN; 
 
     LAI_pine = 1e-3*bmleaf_pine*SLA['pine']  # 1e-3 converts 10kg/ha to kg/m2
     LAI_pine[ix_n] = nofor['LAIpine']
@@ -670,32 +712,47 @@ def create_catchment(fpath,
     bmroot[ix_n] = nofor['bmroot']
     bmroot[ix_p] = opeatl['bmroot']
     bmroot[ix_w] = np.NaN
+    
+    bmroot_pine = 1e-2*(bmroot_pine)  # 1000 kg/ha
+    bmroot_pine[ix_n] = nofor['bmroot']
+    bmroot_pine[ix_p] = opeatl['bmroot']
+    bmroot_pine[ix_w] = np.NaN
 
+    bmroot_spruce = 1e-2*(bmroot_spruce)  # 1000 kg/ha
+    bmroot_spruce[ix_n] = nofor['bmroot']
+    bmroot_spruce[ix_p] = opeatl['bmroot']
+    bmroot_spruce[ix_w] = np.NaN
+
+    bmroot_decid = 1e-2*(bmroot_decid)  # 1000 kg/ha
+    bmroot_decid[ix_n] = nofor['bmroot']
+    bmroot_decid[ix_p] = opeatl['bmroot']
+    bmroot_decid[ix_w] = np.NaN
+    
     # interpolating maintype to not have nan on roads
-    x = np.arange(0, maintype.shape[1])
-    y = np.arange(0, maintype.shape[0])
+    #x = np.arange(0, maintype.shape[1])
+    #y = np.arange(0, maintype.shape[0])
     #mask invalid values
-    array = np.ma.masked_invalid(maintype)
-    xx, yy = np.meshgrid(x, y)
+    #array = np.ma.masked_invalid(maintype)
+    #xx, yy = np.meshgrid(x, y)
     #get only the valid values
-    x1 = xx[~array.mask]
-    y1 = yy[~array.mask]
-    newarr = array[~array.mask]
+    #x1 = xx[~array.mask]
+    #y1 = yy[~array.mask]
+    #newarr = array[~array.mask]
 
-    maintype = griddata((x1, y1), newarr.ravel(),
-                          (xx, yy),
-                             method='nearest')
+    #maintype = griddata((x1, y1), newarr.ravel(),
+    #                      (xx, yy),
+    #                         method='nearest')
 
     # catchment outlet location and catchment mean elevation
     (iy, ix) = np.where(flowacc == np.nanmax(flowacc))
     loc = {'lat': lat0[iy], 'lon': lon0[ix], 'elev': np.nanmean(dem)}
     # dict of all rasters
-    GisData = {'cmask': cmask, 'dem': dem, 'flowacc': flowacc, 'flowpoint': flowpoint, 'slope': slope,
-               'twi': twi, 'gtk_soilcode': surfsoil, 'soilclass': soil, 'peatm': peatm, 'stream': stream,
-               'rockm': rockm, 'LAI_pine': LAI_pine, 'LAI_spruce': LAI_spruce,
-               'LAI_conif': LAI_pine + LAI_spruce,'soil':soil,
-               'LAI_decid': LAI_decid, 'LAI_shrub': LAI_shrub, 'LAI_grass': LAI_grass, 'bmroot': bmroot, 'ba': ba, 'hc': height,
-               'vol': vol, 'p_vol':p_vol,'s_vol':s_vol,'b_vol':b_vol,'cf': cf, 'age': age, 'maintype': maintype, 'sitetype': sitetype,
+    GisData = {'cmask': cmask, 'dem': dem, 'flowacc': flowacc, 'flowpoint': flowpoint, 'slope': slope, 'twi': twi, 
+               'topsoil': topsoil, 'lowsoil': lowsoil, 
+               'peatm': peatm, 'peatm2': peatm2, 'stream': stream, 'lake': lake, 'road': road, 'rockm': rockm,
+               'LAI_pine': LAI_pine, 'LAI_spruce': LAI_spruce, 'LAI_conif': LAI_pine + LAI_spruce, 'LAI_decid': LAI_decid,
+               'bmroot': bmroot, 'ba': ba, 'hc': height, 'vol': vol, 'p_vol': p_vol, 's_vol': s_vol, 'b_vol': b_vol, 
+               'cf': cf, 'age': age, 'maintype': maintype, 'sitetype': sitetype,
                'cellsize': cellsize, 'info': info, 'lat0': lat0, 'lon0': lon0, 'loc': loc}
 
     if plotgrids is True:
@@ -703,51 +760,77 @@ def create_catchment(fpath,
         # xx, yy = np.meshgrid(lon0, lat0)
         plt.close('all')
 
-        plt.figure()
-
+        plt.figure(figsize=(10,6))
+        plt.subplot(111)
+        plt.imshow(cmask); plt.colorbar(); plt.title('catchment mask')
+        
+        plt.figure(figsize=(10,6))
         plt.subplot(221)
-        plt.imshow(dem); plt.colorbar(); plt.title('DEM (m)')
-        plt.plot(ix, iy,'rs')
+        plt.imshow(dem); plt.colorbar(); plt.title('DEM')
+        #plt.plot(ix, iy,'rs')
         plt.subplot(222)
         plt.imshow(twi); plt.colorbar(); plt.title('TWI')
         plt.subplot(223)
-        plt.imshow(slope); plt.colorbar(); plt.title('slope(deg)')
+        plt.imshow(slope); plt.colorbar(); plt.title('slope')
         plt.subplot(224)
-        plt.imshow(flowacc); plt.colorbar(); plt.title('flowacc (m2)')
+        plt.imshow(flowacc); plt.colorbar(); plt.title('flowacc')
 
-        plt.figure(figsize=(6, 14))
-
+        plt.figure(figsize=(10,6))
         plt.subplot(221)
-        plt.imshow(soil); plt.colorbar(); plt.title('soiltype')
-        mask = cmask.copy()*0.0
-        mask[np.isfinite(peatm)] = 1
-        mask[np.isfinite(rockm)] = 2
-        mask[np.isfinite(stream)] = 3
-
+        plt.imshow(topsoil); plt.colorbar(); plt.title('surface soiltype')
         plt.subplot(222)
-        plt.imshow(mask); plt.colorbar(); plt.title('masks')
+        plt.imshow(lowsoil); plt.colorbar(); plt.title('bottom soiltype')
+        #mask = cmask.copy()*0.0
+        #mask[np.isfinite(peatm)] = 1
+        #mask[np.isfinite(rockm)] = 2
+        #mask[np.isfinite(stream)] = 3
+
+        #plt.subplot(222)
+        #plt.imshow(mask); plt.colorbar(); plt.title('masks')
+        plt.figure(figsize=(10,6))
+        plt.subplot(221)
+        plt.imshow(LAI_pine+LAI_spruce); plt.colorbar(); plt.title('LAI conif (m2/m2)')
+        plt.subplot(222)
+        plt.imshow(LAI_decid); plt.colorbar(); plt.title('LAI decid (m2/m2)')
         plt.subplot(223)
-        plt.imshow(LAI_pine+LAI_spruce + LAI_decid); plt.colorbar(); plt.title('LAI (m2/m2)')
+        plt.imshow(age); plt.colorbar(); plt.title('tree age (yr)')
         plt.subplot(224)
-        plt.imshow(cf); plt.colorbar(); plt.title('cf (-)')
+        plt.imshow(height); plt.colorbar(); plt.title('canopy height (m)')
+        
+        plt.figure(figsize=(10,6))
+        plt.subplot(221)
+        plt.imshow(cf); plt.colorbar(); plt.title('canopy fraction (-)')
+        plt.subplot(222)
+        plt.imshow(p_vol+s_vol); plt.colorbar(); plt.title('conif. vol (m3/ha)')
+        plt.subplot(223)
+        plt.imshow(p_vol); plt.colorbar(); plt.title('decid. vol (m3/ha)')
+        plt.subplot(224)
+        plt.imshow(ba); plt.colorbar(); plt.title('basal area (m2/ha)')
 
-
-        plt.figure(figsize=(6,11))
-        plt.subplot(321)
-        plt.imshow(vol); plt.colorbar(); plt.title('vol (m3/ha)')
-        plt.subplot(323)
-        plt.imshow(height); plt.colorbar(); plt.title('hc (m)')
-        #plt.subplot(223)
-        #plt.imshow(ba); plt.colorbar(); plt.title('ba (m2/ha)')
-        plt.subplot(325)
-        plt.imshow(age); plt.colorbar(); plt.title('age (yr)')
-        plt.subplot(322)
+        plt.figure(figsize=(10,6))
+        plt.subplot(221)
         plt.imshow(1e-3*bmleaf_pine); plt.colorbar(); plt.title('pine needles (kg/m2)')
-        plt.subplot(324)
+        plt.subplot(222)
         plt.imshow(1e-3*bmleaf_spruce); plt.colorbar(); plt.title('spruce needles (kg/m2)')
-        plt.subplot(326)
+        plt.subplot(223)
         plt.imshow(1e-3*bmleaf_decid); plt.colorbar(); plt.title('decid. leaves (kg/m2)')
 
+        plt.figure(figsize=(10,6))
+        plt.subplot(221)
+        plt.imshow(1e-3*bmroot_pine); plt.colorbar(); plt.title('pine roots (kg/m2)')
+        plt.subplot(222)
+        plt.imshow(1e-3*bmroot_spruce); plt.colorbar(); plt.title('spruce roots (kg/m2)')
+        plt.subplot(223)
+        plt.imshow(1e-3*bmroot_decid); plt.colorbar(); plt.title('decid. roots (kg/m2)')
+
+        plt.figure(figsize=(10,6))
+        plt.subplot(221)
+        plt.imshow(stream); plt.colorbar(); plt.title('stream')
+        plt.subplot(222)
+        plt.imshow(road); plt.colorbar(); plt.title('roads')
+        plt.subplot(223)
+        plt.imshow(lake); plt.colorbar(); plt.title('lake')
+        
     if plotdistr is True:
         twi0 = twi[np.isfinite(twi)]
         vol = vol[np.isfinite(vol)]
