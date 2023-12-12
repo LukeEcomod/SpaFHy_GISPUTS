@@ -17,6 +17,7 @@ from rasterio.windows import from_bounds
 from rasterio.plot import show
 from rasterio.enums import Resampling
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import xarray as xr
 import numpy as np
 from pysheds.grid import Grid
@@ -350,11 +351,6 @@ def needlemass_to_lai(in_fd, in_ff, out_fd, species, save_in='asc', plot=True):
         raster = rasterio.open(out_fn)
         show(raster)
 
-#def coords_array(in_raster_fn):
-#    with rasterio.open(in_raster_fn) as src:
-#        out_arr = np.zeros(src.read(1).shape)
-        
-
 
 def soilmap_from_puhti(soilmap, subset, out_fd, ref_raster, soildepth='surface', plot=True, save_in='geotiff'):
     '''
@@ -441,426 +437,36 @@ def maastolayer_to_raster(in_fn, out_fd, layer, ref_raster, save_in='asc', plot=
             raster = rasterio.open(out_fn)
             show(raster)
 
-def create_catchment(fpath, 
-                     plotgrids=True, 
-                     plotdistr=False):
-    """
-    reads gis-data grids from catchment and returns numpy 2d-arrays
-    IN:
-        fpath - folder (str)
-        plotgrids - True plots
-    OUT:
-        GisData - dictionary with 2d numpy arrays and some vectors/scalars.
+def burn_roads_and_streams_to_dem(dem_in, dem_out, streams_in, lakes_in, roads_in, save_in='asc', plot=True):
+    dem = rasterio.open(dem_in)
+    dem_arr = dem.read(1)
+    stream = rasterio.open(streams_in)
+    stream_arr = stream.read(1)
+    lake = rasterio.open(lakes_in)
+    lake_arr = lake.read(1)    
+    road = rasterio.open(roads_in)
+    road_arr = road.read(1)
 
-        keys [units]:
-        'dem'[m],'slope'[deg],'soil'[coding 1-4], 'cf'[-],'flowacc'[m2], 'twi'[log m??],
-        'vol'[m3/ha],'ba'[m2/ha], 'age'[yrs], 'hc'[m], 'bmroot'[1000kg/ha],
-        'LAI_pine'[m2/m2 one-sided],'LAI_spruce','LAI_decid',
-        'info','lat0'[latitude, euref_fin],'lon0'[longitude, euref_fin],
-        loc[outlet coords,euref_fin],'cellsize'[cellwidth,m],
-        'peatm','stream','cmask','rockm'[masks, 1=True]
-    """
+    stream_i = np.where((stream_arr > 0) | (lake_arr > 0))  # where stream or lake exist
+    road_i = np.where((road_arr > 0) & (stream_arr < 0))  # where road exist and stream does not exist
+    dem_arr[stream_i] = dem_arr[stream_i] - 1 # dropping dem 1 meter where stream_i
+    dem_arr[road_i] = dem_arr[road_i] + 1 # lifting dem 1 meter where road_i
+
+    meta = dem.meta.copy()
+    meta.update(compress='lzw')
+
+    if save_in == 'geotiff':
+        meta.update({"driver": "GTiff"})        
+    elif save_in == 'asc':
+        meta.update({"driver": "AAIGrid"})    
     
-    # values to be set for 'open peatlands' and 'not forest land'
-    nofor = {'vol': 0.1, 'ba': 0.01, 'height': 0.1, 'cf': 0.01, 'age': 0.0,
-             'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01}
-    opeatl = {'vol': 0.01, 'ba': 0.01, 'height': 0.1, 'cf': 0.1, 'age': 0.0,
-              'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01, 'bmleaf': 0.01}
-
-    # SLA = {'pine': 5.54, 'spruce': 5.65, 'decid': 18.46}  # m2/kg, Kellomäki et al. 2001 Atm. Env.
-    SLA = {'pine': 6.8, 'spruce': 4.7, 'decid': 14.0}  # Härkönen et al. 2015 BER 20, 181-195
-    
-    ''' *** READING ALL MAPS *** '''
-    # NLF DEM and derivatives
-    dem, info, pos, cellsize, nodata = read_AsciiGrid(os.path.join(fpath, 'dem/inflated_dem_kuivajarvi.asc'))
-    cmask, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/cmask_d8_kuivajarvi_fill.asc'))
-    flowacc, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/acc_d8_kuivajarvi.asc'))
-    flowpoint, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/fdir_d8_kuivajarvi.asc'))
-    slope, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/slope_d8_kuivajarvi.asc'))
-    twi, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/twi_d8_kuivajarvi.asc'))
-
-    # NLF maastotietokanta maps
-    stream, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/virtavesikapea.asc'))
-    lake, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/jarvi.asc'))
-    road, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/tieviiva.asc'))
-    peatm, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/suo.asc'))
-    peatm2, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/soistuma.asc'))
-    rockm, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/kallioalue.asc'))
-
-    #GTK soil maps
-    surfsoil, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/surface200.asc'))
-    botsoil, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/bottom200.asc'))
-
-    # LUKE VMI maps
-    # spruce
-    bmleaf_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_neulaset_vmi1x_1721.asc')) # 10kg/ha
-    bmroot_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_juuret_vmi1x_1721.asc')) # 10kg/ha
-    bmstump_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_kanto_vmi1x_1721.asc')) # 10kg/ha
-    bmlivebranch_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_elavatoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmdeadbranch_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_kuolleetoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmtop_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_latva_vmi1x_1721.asc')) # 10kg/ha
-    bmcore_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_runkokuori_vmi1x_1721.asc')) # 10kg/ha
-    s_vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/kuusi_vmi1x_1721.asc'))     #spruce volume [m3 ha-1]
-    # pine
-    bmleaf_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_neulaset_vmi1x_1721.asc')) # 10kg/ha
-    bmroot_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_juuret_vmi1x_1721.asc')) # 10kg/ha
-    bmstump_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_kanto_vmi1x_1721.asc')) # 10kg/ha
-    bmlivebranch_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_elavatoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmdeadbranch_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_kuolleetoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmtop_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_latva_vmi1x_1721.asc')) # 10kg/ha
-    bmcore_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_runkokuori_vmi1x_1721.asc')) # 10kg/ha
-    p_vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/manty_vmi1x_1721.asc'))     #pine volume [m3 ha-1]
-    # decid
-    bmleaf_decid, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_neulaset_vmi1x_1721.asc')) # 10kg/ha
-    bmroot_decid, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_juuret_vmi1x_1721.asc')) # 10kg/ha
-    bmstump_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_kanto_vmi1x_1721.asc')) # 10kg/ha
-    bmlivebranch_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_elavatoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmdeadbranch_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_kuolleetoksat_vmi1x_1721.asc')) # 10kg/ha
-    bmtop_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_latva_vmi1x_1721.asc')) # 10kg/ha
-    bmcore_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_lehtip_runkokuori_vmi1x_1721.asc'))
-    b_vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/koivu_vmi1x_1721.asc'))     #birch volume [m3 ha-1]
-    cf_d, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/lehtip_latvuspeitto_vmi1x_1721.asc'))     # canopy closure [%]
-    # integrated
-    fraclass, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/fra_luokka_vmi1x_1721.asc')) # FRA [1-4]
-    cf, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/latvuspeitto_vmi1x_1721.asc'))  # canopy closure [%]
-    height, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/keskipituus_vmi1x_1721.asc'))   # tree height [dm]
-    diameter, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/keskilapimitta_vmi1x_1721.asc'))  # tree diameter [cm]
-    ba, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/ppa_vmi1x_1721.asc') )  # basal area [m2 ha-1]
-    age, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/ika_vmi1x_1721.asc'))   # stand age [yrs]
-    maintype, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/paatyyppi_vmi1x_1721.asc')) # [1-4]
-    sitetype, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/kasvupaikka_vmi1x_1721.asc')) # [1-10]
-    forestsoilclass, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/maaluokka_vmi1x_1721.asc')) # forestry soil class [1-3]
-    vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/tilavuus_vmi1x_1721.asc'))  # total volume [m3 ha-1]
-
-    # catchment mask cmask ==1, np.NaN outside
-    cmask[np.isfinite(cmask)] = 1.0
-
-    # dem, set values outside boundaries to NaN
-    # latitude, longitude arrays
-    nrows, ncols = np.shape(dem)
-    lon0 = np.arange(pos[0], pos[0] + cellsize*ncols, cellsize)
-    lat0 = np.arange(pos[1], pos[1] + cellsize*nrows, cellsize)
-    lat0 = np.flipud(lat0)  # why this is needed to get coordinates correct when plotting?
-
-    """
-    Create soiltype grid and masks for waterbodies, streams, peatlands and rocks
-    """
-    # Maastotietokanta water bodies: 1=waterbody
-    stream[np.isfinite(stream)] = -1.0
-    # Maastotietokanta water bodies: 1=waterbody
-    lake[np.isfinite(lake)] = -1.0
-    # maastotietokanta peatlandmask
-    peatm[np.isfinite(peatm)] = 1.0
-    # maastotietokanta kalliomaski
-    rockm[np.isfinite(rockm)] = 1.0
-    # maastotietokanta peatmask2
-    peatm2[np.isfinite(peatm2)] = 1.0
-    # maastotietokanta roadmask
-    road[np.isfinite(road)] = -1.0
-    
-    """
-    gtk soilmap: read and re-classify into 4 texture classes
-    #GTK-pintamaalaji grouped to 4 classes (Samuli Launiainen, Jan 7, 2017)
-    #Codes based on maalaji 1:20 000 AND ADD HERE ALSO 1:200 000
-
-        ---- 1:20 000 map
-        195111.0 = Kalliomaa
-        195313.0 = Sora
-        195214.0 = Hiekkamoreeni
-        195314.0 = Hiekka
-        195315.0 = karkea Hieta 
-        195411.0 = hieno Hieta
-        195412.0 = Hiesu
-        195512.0 = Saraturve
-        195513.0 = Rahkaturve
-        195603.0 = Vesi
-        ---- 1:200 000 map
-        195111.0 = Kalliomaa
-        195110.0 = Kalliopaljastuma
-        195310.0 = Karkearakeinen maalaji
-        195210.0 = Sekalajitteinen maalaji 
-        195410.0 = Hienojakoinen maalaji
-        19551822.0 = Soistuma
-        19551891.0 = Ohut turvekerros
-        19551892.0 = Paksu turvekerros
-        195603.0 = Vesi
-    """
-    
-    CoarseTextured = [195213, 195314, 19531421, 195313, 195310]
-    MediumTextured = [195315, 19531521, 195215, 195214, 195601, 195411, 195112,
-                      195311, 195113, 195111, 195210, 195110, 195312]
-    FineTextured = [19531521, 195412, 19541221, 195511, 195413, 195410,
-                    19541321, 195618]
-    Peats = [195512, 195513, 195514, 19551822, 19551891, 19551892]
-    Water = [195603]
-
-    # manipulating surface soil
-    rs, cs = np.shape(surfsoil)
-    topsoil = np.ravel(surfsoil)
-    topsoil[np.in1d(topsoil, CoarseTextured)] = 1.0 
-    topsoil[np.in1d(topsoil, MediumTextured)] = 2.0
-    topsoil[np.in1d(topsoil, FineTextured)] = 3.0
-    topsoil[np.in1d(topsoil, Peats)] = 4.0
-    topsoil[np.in1d(topsoil, Water)] = -1.0
-    topsoil[topsoil == -1.0] = 2.0
-    topsoil[np.where(topsoil == 4.0) and np.where(peatm.flatten() != 1.0) and np.where(topsoil != 1.0)] = 2.0
-    # reshape back to original grid
-    topsoil = topsoil.reshape(rs, cs)
-    del rs, cs
-    topsoil[np.isfinite(peatm)] = 4.0
-
-    # manipulating bottom soil
-    rb, cb = np.shape(botsoil)
-    lowsoil = np.ravel(botsoil)
-    lowsoil[np.in1d(lowsoil, CoarseTextured)] = 1.0 
-    lowsoil[np.in1d(lowsoil, MediumTextured)] = 2.0
-    lowsoil[np.in1d(lowsoil, FineTextured)] = 3.0
-    lowsoil[np.in1d(lowsoil, Peats)] = 4.0
-    lowsoil[np.in1d(lowsoil, Water)] = -1.0
-    lowsoil[lowsoil == -1.0] = 2.0
-    lowsoil[np.where(lowsoil == 4.0) and np.where(peatm.flatten() != 1.0) and np.where(lowsoil != 1.0)] = 2.0
-    # reshape back to original grid
-    lowsoil = lowsoil.reshape(rb, cb)
-    del rb, cb
-    lowsoil[np.isfinite(peatm)] = 4.0
-
-    # update waterbody mask
-    ix = np.where(topsoil == -1.0)
-    stream[ix] = -1.0
-    stream[~np.isfinite(stream)] = 0.0
-
-    road[~np.isfinite(road)] = 0.0
-    lake[~np.isfinite(lake)] = 0.0
-
-    # update catchment mask so that water bodies are left out (SL 20.2.18)
-    #cmask[soil == -1.0] = np.NaN
-
-    """ stand data (MNFI)"""
-    
-    # indexes for cells not recognized in mNFI
-    ix_n = np.where((vol >= 32727) | (vol == -9999) )  # no satellite cover or not forest land: assign arbitrary values
-    ix_p = np.where((vol >= 32727) & (peatm == 1))  # open peatlands: assign arbitrary values
-    ix_w = np.where(((vol >= 32727) & (stream == -1)) | ((vol >= 32727) & (lake == -1)))  # waterbodies: leave out
-    #cmask[ix_w] = np.NaN  # NOTE: leaves waterbodies out of catchment mask
-
-    lowsoil[ix_w] = np.NaN
-    topsoil[ix_w] = np.NaN
-
-    vol[ix_n] = nofor['vol']
-    vol[ix_p] = opeatl['vol']
-    vol[ix_w] = np.NaN
-    
-    p_vol[ix_n] = nofor['vol']
-    p_vol[ix_p] = opeatl['vol']
-    p_vol[ix_w] = np.NaN
-
-    s_vol[ix_n] = nofor['vol']
-    s_vol[ix_p] = opeatl['vol']
-    s_vol[ix_w] = np.NaN
-
-    b_vol[ix_n] = nofor['vol']
-    b_vol[ix_p] = opeatl['vol']
-    b_vol[ix_w] = np.NaN
-    
-    ba[ix_n] = nofor['ba']
-    ba[ix_p] = opeatl['ba']
-    ba[ix_w] = np.NaN
-
-    height = 0.1*height  # m
-    height[ix_n] = nofor['height']
-    height[ix_p] = opeatl['height']
-    height[ix_w] = np.NaN
-
-    cf = 1e-2*cf
-    cf[ix_n] = nofor['cf']
-    cf[ix_p] = opeatl['cf']
-    cf[ix_w] = np.NaN
-
-    age[ix_n] = nofor['age']
-    age[ix_p] = opeatl['age']
-    age[ix_w] = np.NaN
-
-    # leaf biomasses and one-sided LAI
-    bmleaf_pine[ix_n]=nofor['bmleaf']; 
-    bmleaf_pine[ix_p]=opeatl['bmleaf']; 
-    bmleaf_pine[ix_w]=np.NaN; 
-
-    bmleaf_spruce[ix_n]=nofor['bmleaf'];
-    bmleaf_spruce[ix_p]=opeatl['bmleaf']; 
-    bmleaf_spruce[ix_w]=np.NaN; 
-    
-    bmleaf_decid[ix_n]=nofor['bmleaf'];
-    bmleaf_decid[ix_p]=opeatl['bmleaf']; 
-    bmleaf_decid[ix_w]=np.NaN; 
-
-    LAI_pine = 1e-3*bmleaf_pine*SLA['pine']  # 1e-3 converts 10kg/ha to kg/m2
-    LAI_pine[ix_n] = nofor['LAIpine']
-    LAI_pine[ix_p] = opeatl['LAIpine']
-    LAI_pine[ix_w] = np.NaN
-
-    LAI_spruce = 1e-3*bmleaf_spruce*SLA['spruce']
-    LAI_spruce[ix_n] = nofor['LAIspruce']
-    LAI_spruce[ix_p] = opeatl['LAIspruce']
-    LAI_spruce[ix_w] = np.NaN
-
-    LAI_decid = 1e-3*bmleaf_decid*SLA['decid']
-    LAI_decid[ix_n] = nofor['LAIdecid']
-    LAI_decid[ix_p] = opeatl['LAIdecid']
-    LAI_decid[ix_w] = np.NaN
-
-    bmroot = 1e-2*(bmroot_pine + bmroot_spruce + bmroot_decid)  # 1000 kg/ha
-    bmroot[ix_n] = nofor['bmroot']
-    bmroot[ix_p] = opeatl['bmroot']
-    bmroot[ix_w] = np.NaN
-    
-    bmroot_pine = 1e-2*(bmroot_pine)  # 1000 kg/ha
-    bmroot_pine[ix_n] = nofor['bmroot']
-    bmroot_pine[ix_p] = opeatl['bmroot']
-    bmroot_pine[ix_w] = np.NaN
-
-    bmroot_spruce = 1e-2*(bmroot_spruce)  # 1000 kg/ha
-    bmroot_spruce[ix_n] = nofor['bmroot']
-    bmroot_spruce[ix_p] = opeatl['bmroot']
-    bmroot_spruce[ix_w] = np.NaN
-
-    bmroot_decid = 1e-2*(bmroot_decid)  # 1000 kg/ha
-    bmroot_decid[ix_n] = nofor['bmroot']
-    bmroot_decid[ix_p] = opeatl['bmroot']
-    bmroot_decid[ix_w] = np.NaN
-    
-    # interpolating maintype to not have nan on roads
-    #x = np.arange(0, maintype.shape[1])
-    #y = np.arange(0, maintype.shape[0])
-    #mask invalid values
-    #array = np.ma.masked_invalid(maintype)
-    #xx, yy = np.meshgrid(x, y)
-    #get only the valid values
-    #x1 = xx[~array.mask]
-    #y1 = yy[~array.mask]
-    #newarr = array[~array.mask]
-
-    #maintype = griddata((x1, y1), newarr.ravel(),
-    #                      (xx, yy),
-    #                         method='nearest')
-
-    # catchment outlet location and catchment mean elevation
-    (iy, ix) = np.where(flowacc == np.nanmax(flowacc))
-    loc = {'lat': lat0[iy], 'lon': lon0[ix], 'elev': np.nanmean(dem)}
-    # dict of all rasters
-    GisData = {'cmask': cmask, 'dem': dem, 'flowacc': flowacc, 'flowpoint': flowpoint, 'slope': slope, 'twi': twi, 
-               'topsoil': topsoil, 'lowsoil': lowsoil, 
-               'peatm': peatm, 'peatm2': peatm2, 'stream': stream, 'lake': lake, 'road': road, 'rockm': rockm,
-               'LAI_pine': LAI_pine, 'LAI_spruce': LAI_spruce, 'LAI_conif': LAI_pine + LAI_spruce, 'LAI_decid': LAI_decid,
-               'bmroot': bmroot, 'ba': ba, 'hc': height, 'vol': vol, 'p_vol': p_vol, 's_vol': s_vol, 'b_vol': b_vol, 
-               'cf': cf, 'age': age, 'maintype': maintype, 'sitetype': sitetype,
-               'cellsize': cellsize, 'info': info, 'lat0': lat0, 'lon0': lon0, 'loc': loc}
-
-    if plotgrids is True:
-        # %matplotlib qt
-        # xx, yy = np.meshgrid(lon0, lat0)
-        plt.close('all')
-
-        plt.figure(figsize=(10,6))
-        plt.subplot(111)
-        plt.imshow(cmask); plt.colorbar(); plt.title('catchment mask')
+    with rasterio.open(dem_out, 'w+', **meta) as out:
+        out_arr = out.read(1)
+        out.write_band(1, dem_arr)
         
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(dem); plt.colorbar(); plt.title('DEM')
-        #plt.plot(ix, iy,'rs')
-        plt.subplot(222)
-        plt.imshow(twi); plt.colorbar(); plt.title('TWI')
-        plt.subplot(223)
-        plt.imshow(slope); plt.colorbar(); plt.title('slope')
-        plt.subplot(224)
-        plt.imshow(flowacc); plt.colorbar(); plt.title('flowacc')
-
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(topsoil); plt.colorbar(); plt.title('surface soiltype')
-        plt.subplot(222)
-        plt.imshow(lowsoil); plt.colorbar(); plt.title('bottom soiltype')
-        #mask = cmask.copy()*0.0
-        #mask[np.isfinite(peatm)] = 1
-        #mask[np.isfinite(rockm)] = 2
-        #mask[np.isfinite(stream)] = 3
-
-        #plt.subplot(222)
-        #plt.imshow(mask); plt.colorbar(); plt.title('masks')
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(LAI_pine+LAI_spruce); plt.colorbar(); plt.title('LAI conif (m2/m2)')
-        plt.subplot(222)
-        plt.imshow(LAI_decid); plt.colorbar(); plt.title('LAI decid (m2/m2)')
-        plt.subplot(223)
-        plt.imshow(age); plt.colorbar(); plt.title('tree age (yr)')
-        plt.subplot(224)
-        plt.imshow(height); plt.colorbar(); plt.title('canopy height (m)')
-        
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(cf); plt.colorbar(); plt.title('canopy fraction (-)')
-        plt.subplot(222)
-        plt.imshow(p_vol+s_vol); plt.colorbar(); plt.title('conif. vol (m3/ha)')
-        plt.subplot(223)
-        plt.imshow(p_vol); plt.colorbar(); plt.title('decid. vol (m3/ha)')
-        plt.subplot(224)
-        plt.imshow(ba); plt.colorbar(); plt.title('basal area (m2/ha)')
-
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(1e-3*bmleaf_pine); plt.colorbar(); plt.title('pine needles (kg/m2)')
-        plt.subplot(222)
-        plt.imshow(1e-3*bmleaf_spruce); plt.colorbar(); plt.title('spruce needles (kg/m2)')
-        plt.subplot(223)
-        plt.imshow(1e-3*bmleaf_decid); plt.colorbar(); plt.title('decid. leaves (kg/m2)')
-
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(1e-3*bmroot_pine); plt.colorbar(); plt.title('pine roots (kg/m2)')
-        plt.subplot(222)
-        plt.imshow(1e-3*bmroot_spruce); plt.colorbar(); plt.title('spruce roots (kg/m2)')
-        plt.subplot(223)
-        plt.imshow(1e-3*bmroot_decid); plt.colorbar(); plt.title('decid. roots (kg/m2)')
-
-        plt.figure(figsize=(10,6))
-        plt.subplot(221)
-        plt.imshow(stream); plt.colorbar(); plt.title('stream')
-        plt.subplot(222)
-        plt.imshow(road); plt.colorbar(); plt.title('roads')
-        plt.subplot(223)
-        plt.imshow(lake); plt.colorbar(); plt.title('lake')
-        
-    if plotdistr is True:
-        twi0 = twi[np.isfinite(twi)]
-        vol = vol[np.isfinite(vol)]
-        lai = LAI_pine + LAI_spruce + LAI_decid
-        lai = lai[np.isfinite(lai)]
-        soil0 = soil[np.isfinite(soil)]
-
-        plt.figure(100)
-        plt.subplot(221)
-        plt.hist(twi0, bins=100, color='b', alpha=0.5)
-        plt.ylabel('f');plt.ylabel('twi')
-
-        s = np.unique(soil0)
-        colcode = 'rgcym'
-        for k in range(0,len(s)):
-            # print k
-            a = twi[np.where(soil==s[k])]
-            a = a[np.isfinite(a)]
-            plt.hist(a, bins=50, alpha=0.5, color=colcode[k], label='soil ' +str(s[k]))
-        plt.legend()
-        plt.show()
-
-        plt.subplot(222)
-        plt.hist(vol, bins=100, color='k'); plt.ylabel('f'); plt.ylabel('vol')
-        plt.subplot(223)
-        plt.hist(lai, bins=100, color='g'); plt.ylabel('f'); plt.ylabel('lai')
-        plt.subplot(224)
-        plt.hist(soil0, bins=5, color='r'); plt.ylabel('f');plt.ylabel('soiltype')
-
-    return GisData
+        if plot==True:
+            raster = rasterio.open(dem_out)
+            show(raster)
 
 
 def read_AsciiGrid(fname, setnans=True):

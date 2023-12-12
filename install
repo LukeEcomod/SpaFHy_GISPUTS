@@ -1,2 +1,1 @@
-conda install -c conda-forge geopandas
-
+conda install -c conda-forge netcdf4
