@@ -23,3 +23,6 @@ __pycache__/
 # pysheds env
 env/
 *.yml
+
+# install file
+install

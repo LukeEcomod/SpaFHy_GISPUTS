@@ -66,9 +66,11 @@ def create_catchment(fpath,
     rockm, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'maastotietokanta/kallioalue.asc'))
 
     #GTK soil maps
-    surfsoil, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/surface200.asc'))
-    botsoil, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/bottom200.asc'))
-
+    topsoil200, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/surface200.asc'))
+    lowsoil200, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/bottom200.asc'))
+    topsoil20, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/surface20.asc'))
+    lowsoil20, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'soil/bottom20.asc'))
+    
     # LUKE VMI maps
     # spruce
     bmleaf_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_neulaset_vmi1x_1721.asc')) # 10kg/ha
@@ -173,34 +175,64 @@ def create_catchment(fpath,
     Water = [195603]
 
     # manipulating surface soil
-    rs, cs = np.shape(surfsoil)
-    topsoil = np.ravel(surfsoil)
-    topsoil[np.in1d(topsoil, CoarseTextured)] = 1.0 
-    topsoil[np.in1d(topsoil, MediumTextured)] = 2.0
-    topsoil[np.in1d(topsoil, FineTextured)] = 3.0
-    topsoil[np.in1d(topsoil, Peats)] = 4.0
-    topsoil[np.in1d(topsoil, Water)] = np.NaN
-    #topsoil[topsoil == -1.0] = 2.0
-    topsoil[np.where(topsoil == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(topsoil != 1.0)] = 2.0
+    rs, cs = np.shape(topsoil200)
+    topsoil200 = np.ravel(topsoil200)
+    topsoil200[np.in1d(topsoil200, CoarseTextured)] = 1.0 
+    topsoil200[np.in1d(topsoil200, MediumTextured)] = 2.0
+    topsoil200[np.in1d(topsoil200, FineTextured)] = 3.0
+    topsoil200[np.in1d(topsoil200, Peats)] = 4.0
+    topsoil200[np.in1d(topsoil200, Water)] = np.NaN
+    topsoil200[np.where(topsoil200 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(topsoil200 != 1.0)] = 2.0
     # reshape back to original grid
-    topsoil = topsoil.reshape(rs, cs)
+    topsoil200 = topsoil200.reshape(rs, cs)
     del rs, cs
-    topsoil[np.isfinite(peatland)] = 4.0
-
-    # manipulating bottom soil
-    rb, cb = np.shape(botsoil)
-    lowsoil = np.ravel(botsoil)
-    lowsoil[np.in1d(lowsoil, CoarseTextured)] = 1.0 
-    lowsoil[np.in1d(lowsoil, MediumTextured)] = 2.0
-    lowsoil[np.in1d(lowsoil, FineTextured)] = 3.0
-    lowsoil[np.in1d(lowsoil, Peats)] = 4.0
-    lowsoil[np.in1d(lowsoil, Water)] = np.NaN
-    #lowsoil[lowsoil == -1.0] = 2.0
-    lowsoil[np.where(lowsoil == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(lowsoil != 1.0)] = 2.0
+    topsoil200[np.isfinite(peatland)] = 4.0
+    
+    rs, cs = np.shape(topsoil20)
+    topsoil20 = np.ravel(topsoil20)
+    topsoil20[np.in1d(topsoil20, CoarseTextured)] = 1.0 
+    topsoil20[np.in1d(topsoil20, MediumTextured)] = 2.0
+    topsoil20[np.in1d(topsoil20, FineTextured)] = 3.0
+    topsoil20[np.in1d(topsoil20, Peats)] = 4.0
+    topsoil20[np.in1d(topsoil20, Water)] = np.NaN
+    topsoil20[np.where(topsoil20 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(topsoil20 != 1.0)] = 2.0
     # reshape back to original grid
-    lowsoil = lowsoil.reshape(rb, cb)
+    topsoil20 = topsoil20.reshape(rs, cs)
+    del rs, cs
+    topsoil20[np.isfinite(peatland)] = 4.0
+    
+    # manipulating bottom soil
+    rb, cb = np.shape(lowsoil200)
+    lowsoil200 = np.ravel(lowsoil200)
+    lowsoil200[np.in1d(lowsoil200, CoarseTextured)] = 1.0 
+    lowsoil200[np.in1d(lowsoil200, MediumTextured)] = 2.0
+    lowsoil200[np.in1d(lowsoil200, FineTextured)] = 3.0
+    lowsoil200[np.in1d(lowsoil200, Peats)] = 4.0
+    lowsoil200[np.in1d(lowsoil200, Water)] = np.NaN
+    lowsoil200[np.where(lowsoil200 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(lowsoil200 != 1.0)] = 2.0
+    # reshape back to original grid
+    lowsoil200 = lowsoil200.reshape(rb, cb)
     del rb, cb
-    lowsoil[np.isfinite(peatland)] = 4.0
+    lowsoil200[np.isfinite(peatland)] = 4.0
+
+    rb, cb = np.shape(lowsoil20)
+    lowsoil20 = np.ravel(lowsoil20)
+    lowsoil20[np.in1d(lowsoil20, CoarseTextured)] = 1.0 
+    lowsoil20[np.in1d(lowsoil20, MediumTextured)] = 2.0
+    lowsoil20[np.in1d(lowsoil20, FineTextured)] = 3.0
+    lowsoil20[np.in1d(lowsoil20, Peats)] = 4.0
+    lowsoil20[np.in1d(lowsoil20, Water)] = np.NaN
+    lowsoil20[np.where(lowsoil20 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(lowsoil20 != 1.0)] = 2.0
+    # reshape back to original grid
+    lowsoil20 = lowsoil20.reshape(rb, cb)
+    del rb, cb
+    lowsoil20[np.isfinite(peatland)] = 4.0
+
+    topsoil = topsoil20.copy()
+    lowsoil = lowsoil20.copy()
+
+    topsoil[(~np.isfinite(topsoil) & (np.isfinite(topsoil200)))] = topsoil200[(~np.isfinite(topsoil) & (np.isfinite(topsoil200)))]
+    lowsoil[(~np.isfinite(lowsoil) & (np.isfinite(lowsoil200)))] = lowsoil200[(~np.isfinite(lowsoil) & (np.isfinite(lowsoil200)))]
 
     # update waterbody mask
     ix = np.where(topsoil == -1.0)
@@ -258,7 +290,7 @@ def create_catchment(fpath,
     s_vol[ix_w] = np.NaN 
 
     b_vol = 1e-4*b_vol # m3/ha to m3/m2        
-    b_vol[ix_n] = nofor['vol'] # m3/ha
+    b_vol[ix_n] = nofor['vol'] 
     b_vol[ix_p] = opeatl['vol'] 
     b_vol[ix_w] = np.NaN 
 
@@ -411,6 +443,11 @@ def create_catchment(fpath,
     bmdeadbranch_decid[ix_n] = nofor['bmall']
     bmdeadbranch_decid[ix_p] = opeatl['bmall']
     bmdeadbranch_decid[ix_w] = np.NaN     
+
+    stand_density = tree_density(diameter=cd, ba=ba)
+    stand_density[ix_n] = nofor['bmall']
+    stand_density[ix_p] = opeatl['bmall']
+    stand_density[ix_w] = np.NaN  
     
     # interpolating maintype to not have nan on roads
     #x = np.arange(0, maintype.shape[1])
@@ -479,7 +516,8 @@ def create_catchment(fpath,
                'volume_birch': b_vol, 
                'canopy_fraction': cf, 
                'canopy_fraction_decid': cf_d, 
-               'stand_age': age, 
+               'stand_age': age,
+               'stand_density': stand_density,
                'site_main_class': maintype, 
                'site_fertility_class': sitetype, 
                'fra_land_class': fraclass,
@@ -489,6 +527,65 @@ def create_catchment(fpath,
                'lon0': lon0, 
                'loc': loc}
 
+    GisData_units = {}
+    GisData_meta = {}
+
+    for key in GisData.keys():
+        if key == 'dem':
+           GisData_units[key] = 'm'
+           GisData_meta[key] = 'MML digital elevation model 2023'
+        elif key == 'stand_age':
+           GisData_units[key] = 'years'
+           GisData_meta[key] = 'LUKE VMI 2021'
+        elif key == 'canopy_height':
+           GisData_units[key] = 'm' 
+           GisData_meta[key] = 'LUKE VMI 2021'            
+        elif key == 'canopy_diameter':
+           GisData_units[key] = 'm'   
+           GisData_meta[key] = 'LUKE VMI 2021' 
+        elif key == 'canopy_fraction':
+           GisData_units[key] = '-'   
+           GisData_meta[key] = 'LUKE VMI 2021'              
+        elif key == 'basal_area':
+           GisData_units[key] = 'm2 m-2'
+           GisData_meta[key] = 'LUKE VMI 2021'            
+        elif key == 'slope':
+           GisData_units[key] = 'degrees'
+           GisData_meta[key] = 'dem derivative'
+        elif key == 'stand_density':
+           GisData_units[key] = 'ntrees m-2'
+           GisData_meta[key] = 'basal area and canopy diameter derivative'            
+        elif key == 'catchment_mask':
+           GisData_units[key] = ''
+           GisData_meta[key] = 'dem derivative'            
+        elif key == 'twi':
+           GisData_units[key] = '-'
+           GisData_meta[key] = 'dem derivative'            
+        elif 'flow' in key.split('_'):
+           GisData_units[key] = '-'   
+           GisData_meta[key] = 'dem derivative'               
+        elif 'bm' in key.split('_'):
+           GisData_units[key] = 'kg m-2'   
+           GisData_meta[key] = 'LUKE VMI 2021'                        
+        elif 'volume' in key.split('_'):
+           GisData_units[key] = 'm3 m-2'    
+           GisData_meta[key] = 'LUKE VMI 2021'                                    
+        elif 'LAI' in key.split('_'):
+           GisData_units[key] = 'm2 m-2'  
+           GisData_meta[key] = 'LUKE VMI 2021'                     
+        elif 'soil' in key.split('_'):
+           GisData_units[key] = '-'
+           GisData_meta[key] = 'GTK [soil textures: 4=peat, 3=fine, 3=medium, 1=coarse]'    
+        elif ('mask' in key.split('_')) & ('catchment' not in key.split('_')):
+           GisData_units[key] = '-'
+           GisData_meta[key] = 'MML maastotietokanta 2023'             
+        elif 'class' in key.split('_'):
+           GisData_units[key] = '-'
+           GisData_meta[key] = 'LUKE VMI 2021'   
+        else:
+           GisData_units[key] = '-'
+           GisData_meta[key] = '-'
+            
     if plotgrids is True:
         keys = GisData.keys()
         no_plot = ['cellsize', 'info', 'lat0', 'lon0', 'loc']
@@ -631,10 +728,10 @@ def create_catchment(fpath,
         plt.subplot(224)
         plt.hist(soil0, bins=5, color='r'); plt.ylabel('f');plt.ylabel('soiltype')
 
-    return GisData
+    return GisData, GisData_units, GisData_meta
 
 
-def netcdf_from_dict(data, out_fp, dict_meta='', description=''):
+def netcdf_from_dict(data, units, meta, out_fp, dict_meta='', description=''):
     """
     netCDF4 format output file initialization
 
@@ -662,9 +759,9 @@ def netcdf_from_dict(data, out_fp, dict_meta='', description=''):
 
     # create dataset and dimensions
     ncf = Dataset(out_fp, 'w', format='NETCDF4_CLASSIC')
-    ncf.description = 'GIS dataset : ' + description
+    ncf.description = 'GIS dataset' + description
     ncf.history = 'created ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    ncf.source = 'modified ...'
+    ncf.source = 'MML, GTK, LUKE'
 
     #ncf.createDimension('time', date_dimension)
     ncf.createDimension('lat', lat_shape)
@@ -691,12 +788,31 @@ def netcdf_from_dict(data, out_fp, dict_meta='', description=''):
             var_dim = ('lat', 'lon')
             variable = ncf.createVariable(
                     var, 'f4', var_dim)
-            #variable.units = var_unit
+            variable.units = units[var]
+            variable.meta = meta[var]
 
     for var in data.keys():
         if var not in no_save:
             #print(var)
             ncf[var][:,:] = data[var][:,:]
 
-
     return ncf
+
+def tree_density(diameter, ba):
+    '''
+    in:
+    diameter = tree diameter
+    ba = basal area
+    out:
+    no_trees = number of trees
+    '''
+    # uniform distribution for comparison
+    EPS = np.finfo(float).eps
+    tree_ba= np.pi * (0.5*diameter)**2 # the area of an average tree m2
+    no_trees = ba / (tree_ba + EPS) # how many trees per total basal area
+    # clearcuts cause noise; set n to zero
+    no_trees[diameter<0.01] = 0.0
+    return no_trees
+
+
+

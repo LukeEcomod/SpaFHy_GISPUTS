@@ -156,7 +156,8 @@ def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'
     out_fp = file path to be saved
     scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125   
     '''
-    
+
+        
     with rasterio.open(fp) as dataset:
         
         # resample data to target shape
@@ -254,7 +255,7 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
     return raster_dem, out_fp
 
-def vmi_from_puhti(fd, subset, out_fd, layer='all', plot=True, save_in='geotiff'):
+def vmi_from_puhti_old(fd, subset, out_fd, layer='all', plot=True, save_in='geotiff'):
     if layer=='all':
         p = os.path.join(fd, '*.img')
     else:
@@ -310,7 +311,90 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', plot=True, save_in='geotiff'
             raster = rasterio.open(out_fp)
             show(raster, vmax=100)
 
-#def data_to_spafhy(in_fd, out_fd, save_in='asc', plot=True)
+def vmi_from_puhti(fd, subset, out_fd, scale=False, layer='all', plot=True, save_in='geotiff'):
+    if layer=='all':
+        p = os.path.join(fd, '*.img')
+    else:
+        p = os.path.join(fd, layer)
+
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+        
+    for file in glob.glob(p):
+        print(file)
+        out_fn = file.rpartition('/')[-1][:-4]
+        if save_in == 'geotiff':
+            out_fp = os.path.join(out_fd, out_fn) + '.tif'
+        elif save_in == 'asc':
+            out_fp = os.path.join(out_fd, out_fn) + '.asc'
+
+        if scale==False:
+            src = rasterio.open(file)
+            data = src.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform))
+            profile = src.profile
+            out_meta = src.profile.copy()
+                
+            new_affine = rasterio.Affine(out_meta['transform'][0], 
+                                         out_meta['transform'][1], 
+                                         subset[0], 
+                                         out_meta['transform'][3], 
+                                         out_meta['transform'][4], 
+                                         subset[3])
+        elif scale:
+            scale_factor = scale
+            src = rasterio.open(file)
+            # resample data to target shape
+            new_width = int((subset[2]-subset[0])/(16/scale_factor))
+            new_height = int((subset[3]-subset[1])/(16/scale_factor))
+            data = src.read(1, 
+                            window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform),
+                            out_shape=(src.count,int(new_height),int(new_width)),
+                            resampling=Resampling.bilinear
+                            )
+            # scale image transform
+            new_affine = src.transform * src.transform.scale(
+                        (scale),
+                        (scale)
+                        )    
+            out_meta = src.profile.copy()
+
+            new_affine = rasterio.Affine(out_meta['transform'][0]/scale, 
+                                         out_meta['transform'][1], 
+                                         subset[0], 
+                                         out_meta['transform'][3], 
+                                         out_meta['transform'][4]/scale, 
+                                         subset[3])
+            
+        data[data > 8000] = 32767 # NOT VERY GOOD SOLUTION; THINK THIS MORE!
+
+        if len(data.flatten()[data.flatten() == 32766]) > 0: # 32766
+                print('*** Data has', len(data.flatten()[data.flatten() == 32766]), 'nan values (=32766) ***')
+                #print('--> converted to 0 ***')
+        if len(data.flatten()[data.flatten() == 32767]) > 0: # 32767
+                print('*** Data has', len(data.flatten()[data.flatten() == 32767]), 'non land values (=32767) ***')
+                #print('--> converted to 0 ***')
+        
+        # Update the metadata for geotiff
+        out_meta.update({"driver": "GTiff",
+                        "height": data.shape[0],
+                        "width": data.shape[1],
+                        "transform": new_affine,
+                        "nodata": -9999})
+            
+        if save_in == 'asc':
+            out_meta.update({"driver": "AAIGrid"})
+
+        src.close()
+                
+        with rasterio.Env():
+            with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
+                src = dst.write(data, 1)
+    
+        if plot==True:
+            raster = rasterio.open(out_fp)
+            show(raster, vmax=100)
+
 
 def needlemass_to_lai(in_fd, in_ff, out_fd, species, save_in='asc', plot=True):
 
