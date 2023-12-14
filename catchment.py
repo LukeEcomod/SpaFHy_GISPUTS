@@ -30,20 +30,24 @@ def create_catchment(fpath,
     # values to be set for 'open peatlands' and 'not forest land'
     nofor = {'vol': 0.0, 'ba': 0.01, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
                  'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01,
-                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01}
+                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
     opeatl = {'vol': 0.0, 'ba': 0.01, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
                   'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01, 'bmleaf': 0.01,
-                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01}
-        
+                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
+    water = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
+                  'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}        
     if set_non_forest_as=='nan':
         for key in nofor.keys():
             nofor[key] = np.NaN
             opeatl[key] = np.NaN
+            water[key] = np.NaN
+
     elif set_non_forest_as=='null':
         for key in nofor.keys():
             nofor[key] = 0
             opeatl[key] = 0
-
+            water[key] = np.NaN
         
     # SLA = {'pine': 5.54, 'spruce': 5.65, 'decid': 18.46}  # m2/kg, Kellomäki et al. 2001 Atm. Env.
     SLA = {'pine': 6.8, 'spruce': 4.7, 'decid': 14.0}  # Härkönen et al. 2015 BER 20, 181-195
@@ -181,7 +185,7 @@ def create_catchment(fpath,
     topsoil200[np.in1d(topsoil200, MediumTextured)] = 2.0
     topsoil200[np.in1d(topsoil200, FineTextured)] = 3.0
     topsoil200[np.in1d(topsoil200, Peats)] = 4.0
-    topsoil200[np.in1d(topsoil200, Water)] = np.NaN
+    topsoil200[np.in1d(topsoil200, Water)] = 0.0
     topsoil200[np.where(topsoil200 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(topsoil200 != 1.0)] = 2.0
     # reshape back to original grid
     topsoil200 = topsoil200.reshape(rs, cs)
@@ -194,7 +198,7 @@ def create_catchment(fpath,
     topsoil20[np.in1d(topsoil20, MediumTextured)] = 2.0
     topsoil20[np.in1d(topsoil20, FineTextured)] = 3.0
     topsoil20[np.in1d(topsoil20, Peats)] = 4.0
-    topsoil20[np.in1d(topsoil20, Water)] = np.NaN
+    topsoil20[np.in1d(topsoil20, Water)] = 0.0
     topsoil20[np.where(topsoil20 == 4.0) and np.where(peatland.flatten() != 1.0) and np.where(topsoil20 != 1.0)] = 2.0
     # reshape back to original grid
     topsoil20 = topsoil20.reshape(rs, cs)
@@ -235,8 +239,8 @@ def create_catchment(fpath,
     lowsoil[(~np.isfinite(lowsoil) & (np.isfinite(lowsoil200)))] = lowsoil200[(~np.isfinite(lowsoil) & (np.isfinite(lowsoil200)))]
 
     # update waterbody mask
-    ix = np.where(topsoil == -1.0)
-    stream[ix] = 1.0
+    #ix = np.where(topsoil == -1.0)
+    #stream[ix] = 1.0
     stream[~np.isfinite(stream)] = 0.0
 
     road[~np.isfinite(road)] = 0.0
@@ -251,203 +255,185 @@ def create_catchment(fpath,
     """ stand data (MNFI)"""
     
     # indexes for cells not recognized in mNFI
-    ix_n = np.where((vol >= 32727) | (vol == -9999) )  # no satellite cover or not forest land: assign arbitrary values
+    ix_n = np.where((vol >= 32727) | (vol == -9999))  # no satellite cover or not forest land: assign arbitrary values
     ix_p = np.where((vol >= 32727) & (peatland == 1))  # open peatlands: assign arbitrary values
-    ix_w = np.where(((vol >= 32727) & (stream == 1)) | ((vol >= 32727) & (lake == 1)))  # waterbodies: leave out
+    ix_w = np.where((lake == 1))  # waterbodies: leave out
     ix_t = np.where((sitetype >= 32727)) # no sitetypes set
     #cmask[ix_w] = np.NaN  # NOTE: leaves waterbodies out of catchment mask
 
-    lowsoil[ix_w] = np.NaN
-    topsoil[ix_w] = np.NaN
-
-    maintype[ix_w] = np.NaN
-    maintype[ix_t] = np.NaN
-
-    sitetype[ix_w] = np.NaN
-    sitetype[ix_t] = np.NaN
-    
-    fraclass[ix_w] = np.NaN
-    fraclass[ix_t] = np.NaN
-
+    # units
     cd = 1e-2*cd # cm to m
-    cd[ix_n] = nofor['diameter']
-    cd[ix_p] = opeatl['diameter']
-    cd[ix_w] = np.NaN
-
     vol = 1e-4*vol # m3/ha to m3/m2
-    vol[ix_n] = nofor['vol']
-    vol[ix_p] = opeatl['vol']
-    vol[ix_w] = np.NaN 
-
     p_vol = 1e-4*p_vol # m3/ha to m3/m2    
-    p_vol[ix_n] = nofor['vol']
-    p_vol[ix_p] = opeatl['vol'] 
-    p_vol[ix_w] = np.NaN 
-    
     s_vol = 1e-4*s_vol # m3/ha to m3/m2    
-    s_vol[ix_n] = nofor['vol']
-    s_vol[ix_p] = opeatl['vol'] 
-    s_vol[ix_w] = np.NaN 
-
     b_vol = 1e-4*b_vol # m3/ha to m3/m2        
-    b_vol[ix_n] = nofor['vol'] 
-    b_vol[ix_p] = opeatl['vol'] 
-    b_vol[ix_w] = np.NaN 
-
     ba = 1e-4*ba # m2/ha to m2/m2
-    ba[ix_n] = nofor['ba']
-    ba[ix_p] = nofor['ba']
-    ba[ix_w] = np.NaN
-
     height = 0.1*height  # dm -> m
-    height[ix_n] = nofor['height']
-    height[ix_p] = opeatl['height']
-    height[ix_w] = np.NaN
-
     cf = 1e-2*cf # % -> [-]
-    cf[ix_n] = nofor['cf']
-    cf[ix_p] = opeatl['cf']
-    cf[ix_w] = np.NaN
-
     cf_d = 1e-2*cf_d # % -> [-]
-    cf_d[ix_n] = nofor['cf']
-    cf_d[ix_p] = opeatl['cf']
-    cf_d[ix_w] = np.NaN
-    
-    age[ix_n] = nofor['age'] # years
-    age[ix_p] = opeatl['age']
-    age[ix_w] = np.NaN
-
-    # leaf biomasses and one-sided LAI
     bmleaf_pine = 1e-3*(bmleaf_pine) # 1e-3 converts 10kg/ha to kg/m2
-    bmleaf_pine[ix_n]=nofor['bmleaf']
-    bmleaf_pine[ix_p]=opeatl['bmleaf']
-    bmleaf_pine[ix_w]=np.NaN
-
     bmleaf_spruce = 1e-3*(bmleaf_spruce) # 1e-3 converts 10kg/ha to kg/m2
-    bmleaf_spruce[ix_n]=nofor['bmleaf']
-    bmleaf_spruce[ix_p]=opeatl['bmleaf']
-    bmleaf_spruce[ix_w]=np.NaN
-
     bmleaf_decid = 1e-3*(bmleaf_decid) # 1e-3 converts 10kg/ha to kg/m2    
-    bmleaf_decid[ix_n]=nofor['bmleaf']
-    bmleaf_decid[ix_p]=opeatl['bmleaf']
-    bmleaf_decid[ix_w]=np.NaN
-
-    LAI_pine = bmleaf_pine*SLA['pine']  # 1e-3 converts 10kg/ha to kg/m2
-    LAI_pine[ix_n] = nofor['LAIpine']
-    LAI_pine[ix_p] = opeatl['LAIpine']
-    LAI_pine[ix_w] = np.NaN
-
-    LAI_spruce = bmleaf_spruce*SLA['spruce']
-    LAI_spruce[ix_n] = nofor['LAIspruce']
-    LAI_spruce[ix_p] = opeatl['LAIspruce']
-    LAI_spruce[ix_w] = np.NaN
-
-    LAI_decid = bmleaf_decid*SLA['decid']
-    LAI_decid[ix_n] = nofor['LAIdecid']
-    LAI_decid[ix_p] = opeatl['LAIdecid']
-    LAI_decid[ix_w] = np.NaN
-    
     bmroot_pine = 1e-3*(bmroot_pine)  # kg/m2
-    bmroot_pine[ix_n] = nofor['bmroot']
-    bmroot_pine[ix_p] = opeatl['bmroot']
-    bmroot_pine[ix_w] = np.NaN
-
     bmroot_spruce = 1e-3*(bmroot_spruce)  # kg/m2
-    bmroot_spruce[ix_n] = nofor['bmroot']
-    bmroot_spruce[ix_p] = opeatl['bmroot']
-    bmroot_spruce[ix_w] = np.NaN
-
     bmroot_decid = 1e-3*(bmroot_decid)  # kg/m2
-    bmroot_decid[ix_n] = nofor['bmroot']
-    bmroot_decid[ix_p] = opeatl['bmroot']
-    bmroot_decid[ix_w] = np.NaN
-
-    # stump
-    bmstump_pine = 1e-3*(bmstump_pine)  # kg/m2
-    bmstump_pine[ix_n] = nofor['bmall']
-    bmstump_pine[ix_p] = opeatl['bmall']
-    bmstump_pine[ix_w] = np.NaN
-
     bmstump_spruce = 1e-3*(bmstump_spruce)  # kg/m2
-    bmstump_spruce[ix_n] = nofor['bmall']
-    bmstump_spruce[ix_p] = opeatl['bmall']
-    bmstump_spruce[ix_w] = np.NaN
-
     bmstump_decid = 1e-3*(bmstump_decid)  # kg/m2
-    bmstump_decid[ix_n] = nofor['bmall']
-    bmstump_decid[ix_p] = opeatl['bmall']
-    bmstump_decid[ix_w] = np.NaN
-    
-    # core
     bmcore_pine = 1e-3*(bmcore_pine)  # kg/m2
-    bmcore_pine[ix_n] = nofor['bmall']
-    bmcore_pine[ix_p] = opeatl['bmall']
-    bmcore_pine[ix_w] = np.NaN
-
     bmcore_spruce = 1e-3*(bmcore_spruce)  # kg/m2
-    bmcore_spruce[ix_n] = nofor['bmall']
-    bmcore_spruce[ix_p] = opeatl['bmall']
-    bmcore_spruce[ix_w] = np.NaN
-
     bmcore_decid = 1e-3*(bmcore_decid)  # kg/m2
-    bmcore_decid[ix_n] = nofor['bmall']
-    bmcore_decid[ix_p] = opeatl['bmall']
-    bmcore_decid[ix_w] = np.NaN  
-    
-    # crown
     bmtop_pine = 1e-3*(bmtop_pine)  # kg/m2
-    bmtop_pine[ix_n] = nofor['bmall']
-    bmtop_pine[ix_p] = opeatl['bmall']
-    bmtop_pine[ix_w] = np.NaN
-
     bmtop_spruce = 1e-3*(bmtop_spruce)  # kg/m2
-    bmtop_spruce[ix_n] = nofor['bmall']
-    bmtop_spruce[ix_p] = opeatl['bmall']
-    bmtop_spruce[ix_w] = np.NaN
-
-    bmtop_decid = 1e-3*(bmtop_decid)  # kg/m2
-    bmtop_decid[ix_n] = nofor['bmall']
-    bmtop_decid[ix_p] = opeatl['bmall']
-    bmtop_decid[ix_w] = np.NaN  
-
-    # livebranch
     bmlivebranch_pine = 1e-3*(bmlivebranch_pine)  # kg/m2
-    bmlivebranch_pine[ix_n] = nofor['bmall']
-    bmlivebranch_pine[ix_p] = opeatl['bmall']
-    bmlivebranch_pine[ix_w] = np.NaN
-
     bmlivebranch_spruce = 1e-3*(bmlivebranch_spruce)  # kg/m2
-    bmlivebranch_spruce[ix_n] = nofor['bmall']
-    bmlivebranch_spruce[ix_p] = opeatl['bmall']
-    bmlivebranch_spruce[ix_w] = np.NaN
-
+    bmtop_decid = 1e-3*(bmtop_decid)  # kg/m2
     bmlivebranch_decid = 1e-3*(bmlivebranch_decid)  # kg/m2
-    bmlivebranch_decid[ix_n] = nofor['bmall']
-    bmlivebranch_decid[ix_p] = opeatl['bmall']
-    bmlivebranch_decid[ix_w] = np.NaN 
-
-    # deadbranch
     bmdeadbranch_pine = 1e-3*(bmdeadbranch_pine)  # kg/m2
-    bmdeadbranch_pine[ix_n] = nofor['bmall']
-    bmdeadbranch_pine[ix_p] = opeatl['bmall']
-    bmdeadbranch_pine[ix_w] = np.NaN
-
     bmdeadbranch_spruce = 1e-3*(bmdeadbranch_spruce)  # kg/m2
-    bmdeadbranch_spruce[ix_n] = nofor['bmall']
-    bmdeadbranch_spruce[ix_p] = opeatl['bmall']
-    bmdeadbranch_spruce[ix_w] = np.NaN
-
     bmdeadbranch_decid = 1e-3*(bmdeadbranch_decid)  # kg/m2
-    bmdeadbranch_decid[ix_n] = nofor['bmall']
-    bmdeadbranch_decid[ix_p] = opeatl['bmall']
-    bmdeadbranch_decid[ix_w] = np.NaN     
 
+    # computing LAI
+    LAI_pine = bmleaf_pine*SLA['pine'] 
+    LAI_spruce = bmleaf_spruce*SLA['spruce']
+    LAI_decid = bmleaf_decid*SLA['decid']
+    
+    # to calculate how many trees per area
     stand_density = tree_density(diameter=cd, ba=ba)
+
+    # making 'non-land_mask'
+    nonland = np.zeros(shape=cmask.shape)
+    nonland[(sitetype == 0)] = 1
+    nonland[ix_w] = 0
+    
+    # manipulate non forest, peatlands and water
+    # first water (lakes)
+    lowsoil[ix_w] = water['site']
+    topsoil[ix_w] = water['site']
+    maintype[ix_w] = water['site']
+    sitetype[ix_w] = water['site']
+    fraclass[ix_w] = water['site']
+    cd[ix_w] = water['diameter']
+    vol[ix_w] = water['vol'] 
+    p_vol[ix_w] = water['vol'] 
+    s_vol[ix_w] = water['vol'] 
+    b_vol[ix_w] = water['vol']
+    ba[ix_w] = water['ba']
+    height[ix_w] = water['height']
+    cf[ix_w] = water['cf']
+    cf_d[ix_w] = water['cf']
+    age[ix_w] = water['age']
+    bmleaf_pine[ix_w]=water['bmleaf']
+    bmleaf_spruce[ix_w]=water['bmleaf']
+    bmleaf_decid[ix_w]=water['bmleaf']
+    bmroot_pine[ix_w] = water['bmroot']
+    bmroot_spruce[ix_w] = water['bmroot']
+    bmroot_decid[ix_w] = water['bmroot']
+    bmstump_pine[ix_w] = water['bmall']
+    bmstump_spruce[ix_w] = water['bmall']
+    bmstump_decid[ix_w] = water['bmall']
+    bmcore_pine[ix_w] = water['bmall']
+    bmcore_spruce[ix_w] = water['bmall']
+    bmcore_decid[ix_w] = water['bmall']
+    bmtop_pine[ix_w] = water['bmall']
+    bmtop_spruce[ix_w] = water['bmall']
+    bmtop_decid[ix_w] = water['bmall']
+    bmlivebranch_pine[ix_w] = water['bmall']
+    bmlivebranch_spruce[ix_w] = water['bmall']
+    bmlivebranch_decid[ix_w] = water['bmall']
+    bmdeadbranch_pine[ix_w] = water['bmall']
+    bmdeadbranch_spruce[ix_w] = water['bmall']
+    bmdeadbranch_decid[ix_w] = water['bmall']    
+    LAI_pine[ix_w] = water['LAIpine']
+    LAI_spruce[ix_w] = water['LAIspruce']
+    LAI_decid[ix_w] = water['LAIdecid']
+    stand_density[ix_w] = water['bmall']  
+
+    # second non land by VMI
+    print(ix_n)
+    cd[ix_n] = nofor['diameter']
+    vol[ix_n] = nofor['vol']
+    p_vol[ix_n] = nofor['vol']
+    s_vol[ix_n] = nofor['vol']
+    b_vol[ix_n] = nofor['vol'] 
+    ba[ix_n] = nofor['ba']
+    height[ix_n] = nofor['height']
+    cf[ix_n] = nofor['cf']
+    cf_d[ix_n] = nofor['cf']
+    age[ix_n] = nofor['age'] # years
+    bmleaf_pine[ix_n]=nofor['bmleaf']
+    bmleaf_spruce[ix_n]=nofor['bmleaf']
+    bmleaf_decid[ix_n]=nofor['bmleaf']
+    bmroot_pine[ix_n] = nofor['bmroot']
+    bmroot_spruce[ix_n] = nofor['bmroot']
+    bmroot_decid[ix_n] = nofor['bmroot']
+    bmstump_pine[ix_n] = nofor['bmall']
+    bmstump_spruce[ix_n] = nofor['bmall']
+    bmstump_decid[ix_n] = nofor['bmall']
+    bmcore_pine[ix_n] = nofor['bmall']
+    bmcore_spruce[ix_n] = nofor['bmall']
+    bmcore_decid[ix_n] = nofor['bmall']
+    bmtop_pine[ix_n] = nofor['bmall']
+    bmtop_spruce[ix_n] = nofor['bmall']
+    bmtop_decid[ix_n] = nofor['bmall']
+    bmlivebranch_pine[ix_n] = nofor['bmall']
+    bmlivebranch_spruce[ix_n] = nofor['bmall']
+    bmlivebranch_decid[ix_n] = nofor['bmall']
+    bmdeadbranch_pine[ix_n] = nofor['bmall']
+    bmdeadbranch_spruce[ix_n] = nofor['bmall']
+    bmdeadbranch_decid[ix_n] = nofor['bmall']
+    LAI_pine[ix_n] = nofor['LAIpine']
+    LAI_spruce[ix_n] = nofor['LAIspruce']
+    LAI_decid[ix_n] = nofor['LAIdecid']
     stand_density[ix_n] = nofor['bmall']
+    maintype[ix_n] = nofor['site']
+    sitetype[ix_n] = nofor['site']
+    fraclass[ix_n] = nofor['site']
+    
+    '''
+    maintype[ix_t] = opeatl['site']
+    sitetype[ix_t] = opeatl['site']
+    fraclass[ix_t] = opeatl['site']
+    cd[ix_p] = opeatl['diameter']
+    vol[ix_p] = opeatl['vol']
+    p_vol[ix_p] = opeatl['vol'] 
+    s_vol[ix_p] = opeatl['vol'] 
+    b_vol[ix_p] = opeatl['vol'] 
+    ba[ix_p] = nofor['ba']
+    height[ix_p] = opeatl['height']
+    cf[ix_p] = opeatl['cf']
+    cf_d[ix_p] = opeatl['cf']
+    age[ix_p] = opeatl['age']
+    bmleaf_pine[ix_p]=opeatl['bmleaf']
+    bmleaf_spruce[ix_p]=opeatl['bmleaf']
+    bmleaf_decid[ix_p]=opeatl['bmleaf']
+    bmroot_pine[ix_p] = opeatl['bmroot']
+    bmroot_spruce[ix_p] = opeatl['bmroot']
+    bmroot_decid[ix_p] = opeatl['bmroot']
+    # stump
+    bmstump_pine[ix_p] = opeatl['bmall']
+    bmstump_spruce[ix_p] = opeatl['bmall']
+    bmstump_decid[ix_p] = opeatl['bmall']
+    # core
+    bmcore_pine[ix_p] = opeatl['bmall']
+    bmcore_spruce[ix_p] = opeatl['bmall']
+    bmcore_decid[ix_p] = opeatl['bmall']
+    # crown
+    bmtop_pine[ix_p] = opeatl['bmall']
+    bmtop_spruce[ix_p] = opeatl['bmall']
+    bmtop_decid[ix_p] = opeatl['bmall']
+    # livebranch
+    bmlivebranch_pine[ix_p] = opeatl['bmall']
+    bmlivebranch_spruce[ix_p] = opeatl['bmall']
+    bmlivebranch_decid[ix_p] = opeatl['bmall']
+    # deadbranch
+    bmdeadbranch_pine[ix_p] = opeatl['bmall']
+    bmdeadbranch_spruce[ix_p] = opeatl['bmall']
+    bmdeadbranch_decid[ix_p] = opeatl['bmall']
+    LAI_pine[ix_p] = opeatl['LAIpine']
+    LAI_spruce[ix_p] = opeatl['LAIspruce']
+    LAI_decid[ix_p] = opeatl['LAIdecid']
     stand_density[ix_p] = opeatl['bmall']
-    stand_density[ix_w] = np.NaN  
+    '''
     
     # interpolating maintype to not have nan on roads
     #x = np.arange(0, maintype.shape[1])
@@ -482,6 +468,7 @@ def create_catchment(fpath,
                'lake_mask': lake, 
                'road_mask': road, 
                'rock_mask': rockm,
+               'nonland_mask': nonland,
                'LAI_pine': LAI_pine, 
                'LAI_spruce': LAI_spruce, 
                'LAI_conif': LAI_pine + LAI_spruce, 
@@ -539,7 +526,10 @@ def create_catchment(fpath,
            GisData_meta[key] = 'LUKE VMI 2021'
         elif key == 'canopy_height':
            GisData_units[key] = 'm' 
-           GisData_meta[key] = 'LUKE VMI 2021'            
+           GisData_meta[key] = 'LUKE VMI 2021'
+        elif key == 'nonland_mask':
+           GisData_units[key] = '-' 
+           GisData_meta[key] = 'LUKE VMI 2021'              
         elif key == 'canopy_diameter':
            GisData_units[key] = 'm'   
            GisData_meta[key] = 'LUKE VMI 2021' 
@@ -576,7 +566,7 @@ def create_catchment(fpath,
         elif 'soil' in key.split('_'):
            GisData_units[key] = '-'
            GisData_meta[key] = 'GTK [soil textures: 4=peat, 3=fine, 3=medium, 1=coarse]'    
-        elif ('mask' in key.split('_')) & ('catchment' not in key.split('_')):
+        elif ('mask' in key.split('_')) & ('catchment' not in key.split('_')) & ('nonland' not in key.split('_')):
            GisData_units[key] = '-'
            GisData_meta[key] = 'MML maastotietokanta 2023'             
         elif 'class' in key.split('_'):

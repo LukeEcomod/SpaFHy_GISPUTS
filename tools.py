@@ -16,6 +16,7 @@ from rasterio import features
 from rasterio.windows import from_bounds
 from rasterio.plot import show
 from rasterio.enums import Resampling
+from rasterio.fill import fillnodata
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import xarray as xr
@@ -154,7 +155,7 @@ def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'
     '''
     fp = file path to be downloaded
     out_fp = file path to be saved
-    scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125   
+    scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125)   
     '''
 
         
@@ -189,6 +190,62 @@ def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'
     if plot==True:
         show(raster)
     return raster, out_fp
+
+def resample_raster_set(fd, file, out_fd, scale_factor=0.5, plot=True, save_in='asc'):
+    '''
+    fd = file directory path to be downloaded
+    out_fd = directory path to be saved
+    scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125)   
+    '''
+
+    if file=='*.asc':
+        p = os.path.join(fd, file)
+    elif file=='*.tif':
+        p = os.path.join(fd, file)
+    else:
+        p = os.path.join(fd, file)
+
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+
+    for file in glob.glob(p):
+        out_fn = file.rpartition('/')[-1][:-4]
+        if save_in == 'geotiff':
+            out_fp = os.path.join(out_fd, out_fn) + '.tif'
+        elif save_in == 'asc':
+            out_fp = os.path.join(out_fd, out_fn) + '.asc'
+    
+        with rasterio.open(file) as dataset:
+        
+            # resample data to target shape
+            data = dataset.read(1, 
+                    out_shape=(dataset.count,int(dataset.height * scale_factor),int(dataset.width * scale_factor)),
+                    resampling=Resampling.bilinear
+                    )
+
+            # scale image transform
+            transform = dataset.transform * dataset.transform.scale(
+                (dataset.width / data.shape[-1]),
+                (dataset.height / data.shape[-2])
+                )    
+            out_meta = dataset.profile.copy()
+
+            out_meta.update({"driver": "GTiff",
+                             "height": data.shape[0],
+                              "width": data.shape[1],
+                              "transform": transform,
+                            }
+                            )
+            if save_in=='asc':
+                out_meta.update({"driver": "AAIGrid"})
+        
+            with rasterio.open(out_fp, 'w', **out_meta) as dst:
+                src = dst.write(data, 1)
+            
+            raster = rasterio.open(out_fp)
+            if plot==True:
+                show(raster, vmax=100)
 
 def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', scalefactor=0.01, plot=False):
 
@@ -255,14 +312,16 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
     return raster_dem, out_fp
 
-def vmi_from_puhti_old(fd, subset, out_fd, layer='all', plot=True, save_in='geotiff'):
+def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=False, plot=True, save_in='geotiff'):
+    '''
+    '''
+    
     if layer=='all':
         p = os.path.join(fd, '*.img')
     else:
         p = os.path.join(fd, layer)
 
     if not os.path.exists(out_fd):
-        # Create a new directory because it does not exist
         os.makedirs(out_fd)
         
     for file in glob.glob(p):
@@ -291,7 +350,6 @@ def vmi_from_puhti_old(fd, subset, out_fd, layer='all', plot=True, save_in='geot
             if len(data.flatten()[data.flatten() == 32767]) > 0:
                 print('*** Data has', len(data.flatten()[data.flatten() == 32767]), 'non land values (=32767) ***')
                 #print('--> converted to 0 ***')
-            #data[data > 32765] = 0
 
             # Update the metadata for geotiff
             out_meta.update({"driver": "GTiff",
@@ -306,12 +364,51 @@ def vmi_from_puhti_old(fd, subset, out_fd, layer='all', plot=True, save_in='geot
             with rasterio.Env():
                 with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
                     src = dst.write(data, 1)
-    
+                    
+            if interpolate:
+                with rasterio.open(out_fp, 'r+') as src_new:
+                        src_new.nodata = np.nan
+                        data = src_new.read(1)
+                        data = data.astype('float')
+                        data[data == 32767] = np.nan
+                        data_filled = fillnodata(data, mask=src_new.read_masks(1), max_search_distance=2, smoothing_iterations=0)
+                        print('*** non land interpolated ***')
+                with rasterio.Env():
+                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst_new:
+                        src_new = dst_new.write(data_filled, 1)
+
+            if resample:
+                with rasterio.open(out_fp) as src_new:
+                    # resample data to target shape
+                    print(f'*** resampled with a scalefactor of {resample} ***')
+                    new_width = int((subset[2]-subset[0])/(16/resample))
+                    new_height = int((subset[3]-subset[1])/(16/resample))
+                    data_resampled = src_new.read(1,
+                                    out_shape=(src_new.count,int(new_height),int(new_width)),
+                                    resampling=Resampling.bilinear
+                                    )
+  
+                    out_meta = src_new.profile.copy()
+
+                    new_affine = rasterio.Affine(out_meta['transform'][0]/resample, 
+                                                 out_meta['transform'][1], 
+                                                 subset[0], 
+                                                 out_meta['transform'][3], 
+                                                 out_meta['transform'][4]/resample, 
+                                                 subset[3])
+                    # Update the metadata for geotiff
+                    out_meta.update({"height": data_resampled.shape[0],
+                                    "width": data_resampled.shape[1],
+                                    "transform": new_affine})
+                with rasterio.Env():
+                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
+                        src_new = dst.write(data_resampled, 1)
+                                
         if plot==True:
             raster = rasterio.open(out_fp)
             show(raster, vmax=100)
 
-def vmi_from_puhti(fd, subset, out_fd, scale=False, layer='all', plot=True, save_in='geotiff'):
+def vmi_from_puhti_old(fd, subset, out_fd, scale=False, layer='all', plot=True, save_in='geotiff'):
     if layer=='all':
         p = os.path.join(fd, '*.img')
     else:
@@ -366,7 +463,7 @@ def vmi_from_puhti(fd, subset, out_fd, scale=False, layer='all', plot=True, save
                                          out_meta['transform'][4]/scale, 
                                          subset[3])
             
-        data[data > 8000] = 32767 # NOT VERY GOOD SOLUTION; THINK THIS MORE!
+        data[data > 8000] = np.nan # NOT VERY GOOD SOLUTION; THINK THIS MORE!
 
         if len(data.flatten()[data.flatten() == 32766]) > 0: # 32766
                 print('*** Data has', len(data.flatten()[data.flatten() == 32766]), 'nan values (=32766) ***')
@@ -374,6 +471,7 @@ def vmi_from_puhti(fd, subset, out_fd, scale=False, layer='all', plot=True, save
         if len(data.flatten()[data.flatten() == 32767]) > 0: # 32767
                 print('*** Data has', len(data.flatten()[data.flatten() == 32767]), 'non land values (=32767) ***')
                 #print('--> converted to 0 ***')
+            
         
         # Update the metadata for geotiff
         out_meta.update({"driver": "GTiff",
