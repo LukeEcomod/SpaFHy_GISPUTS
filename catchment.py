@@ -54,7 +54,7 @@ def create_catchment(fpath,
     
     ''' *** READING ALL MAPS *** '''
     # NLF DEM and derivatives
-    dem, info, pos, cellsize, nodata = read_AsciiGrid(os.path.join(fpath, 'dem/inflated_dem_kuivajarvi.asc'))
+    dem, info, pos, cellsize, nodata = read_AsciiGrid(os.path.join(fpath, 'dem/korkeusmalli_16m.asc'))
     cmask, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/cmask_d8_kuivajarvi_fill.asc'))
     flowacc, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/acc_d8_kuivajarvi.asc'))
     flowpoint, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/fdir_d8_kuivajarvi.asc'))
@@ -85,6 +85,7 @@ def create_catchment(fpath,
     bmtop_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_latva_vmi1x_1721.asc')) # 10kg/ha
     bmcore_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_kuusi_runkokuori_vmi1x_1721.asc')) # 10kg/ha
     s_vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/kuusi_vmi1x_1721.asc'))     #spruce volume [m3 ha-1]
+    nonland, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/nonland.asc'))     #vmi nonland mask
     # pine
     bmleaf_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_neulaset_vmi1x_1721.asc')) # 10kg/ha
     bmroot_pine, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'vmi/bm_manty_juuret_vmi1x_1721.asc')) # 10kg/ha
@@ -141,7 +142,12 @@ def create_catchment(fpath,
     paludified[np.isfinite(paludified)] = 1.0
     # maastotietokanta roadmask
     road[np.isfinite(road)] = 1.0
-    
+    # nonland mask not to have roads and streams
+    nonland[np.isfinite(nonland)] = 0.0
+    nonland[~np.isfinite(nonland)] = 1.0
+    #nonland[road == 1.0] = 0.0  
+    #nonland[stream == 1.0] = 0.0  
+
     """
     gtk soilmap: read and re-classify into 4 texture classes
     #GTK-pintamaalaji grouped to 4 classes (Samuli Launiainen, Jan 7, 2017)
@@ -301,9 +307,9 @@ def create_catchment(fpath,
     stand_density = tree_density(diameter=cd, ba=ba)
 
     # making 'non-land_mask'
-    nonland = np.zeros(shape=cmask.shape)
-    nonland[(sitetype == 0)] = 1
-    nonland[ix_w] = 0
+    #nonland = np.zeros(shape=cmask.shape)
+    #nonland[(sitetype == 0)] = 1
+    #nonland[ix_w] = 0
     
     # manipulate non forest, peatlands and water
     # first water (lakes)
@@ -349,7 +355,6 @@ def create_catchment(fpath,
     stand_density[ix_w] = water['bmall']  
 
     # second non land by VMI
-    print(ix_n)
     cd[ix_n] = nofor['diameter']
     vol[ix_n] = nofor['vol']
     p_vol[ix_n] = nofor['vol']
@@ -529,7 +534,7 @@ def create_catchment(fpath,
            GisData_meta[key] = 'LUKE VMI 2021'
         elif key == 'nonland_mask':
            GisData_units[key] = '-' 
-           GisData_meta[key] = 'LUKE VMI 2021'              
+           GisData_meta[key] = 'LUKE VMI 2021 (fields etc.)'              
         elif key == 'canopy_diameter':
            GisData_units[key] = 'm'   
            GisData_meta[key] = 'LUKE VMI 2021' 
@@ -783,7 +788,7 @@ def netcdf_from_dict(data, units, meta, out_fp, dict_meta='', description=''):
 
     for var in data.keys():
         if var not in no_save:
-            #print(var)
+            print(var)
             ncf[var][:,:] = data[var][:,:]
 
     return ncf

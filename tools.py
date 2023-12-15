@@ -28,7 +28,7 @@ from matplotlib import colors
 import warnings
 import geopandas as gpd
 
-def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=True, cmap='terrain'):
+def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=True, save_in='asc'):
 
     '''Downloads a raster from MML database and writes it to dirpath folder in local memory
 
@@ -37,7 +37,6 @@ def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/ti
         layer = the layer wanted to fetch e.g. 'korkeusmalli_2m' or 'korkeusmalli_10m' (str)
         form = form of the raster e.g 'image/tiff' (str)
         plot = whether or not to plot the created raster, True/False
-        cmap = colormap for plotting (str - default = 'terrain')
         '''
 
     # The base url for maanmittauslaitos
@@ -71,10 +70,14 @@ def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/ti
     raster = rasterio.open(r[0])
 
     del r
-    res = int(2/scalefactor)
+    res = int(2/scalefactor) # !! WATCHOUT 2 IS HARD CODED
     layer = f'korkeusmalli_{res}m'
-    out_fp = os.path.join(out_fd, layer) + '.tif'
 
+    if save_in=='tif':
+        out_fp = os.path.join(out_fd, layer) + '.tif'
+    elif save_in=='asc':
+        out_fp = os.path.join(out_fd, layer) + '.asc'
+        
     # Copy the metadata
     out_meta = raster.meta.copy()
 
@@ -83,10 +86,13 @@ def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/ti
                      "height": raster.height,
                      "width": raster.width,
                      "transform": raster.meta['transform'],
-                     "crs": raster.meta['crs']
+                     "crs": raster.meta['crs'],
+                     "nodata":-9999,
                          }
                     )
-
+    if save_in=='asc':
+            out_meta.update({"driver": "AAIGrid"})
+        
     # Manipulating the data for writing purpose
     raster_dem = raster.read(1)
     raster_dem = raster_dem[newaxis, :, :]
@@ -312,7 +318,7 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
     return raster_dem, out_fp
 
-def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=False, plot=True, save_in='geotiff'):
+def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search_distance=2, resample=False, plot=True, save_in='geotiff'):
     '''
     '''
     
@@ -323,14 +329,19 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
 
     if not os.path.exists(out_fd):
         os.makedirs(out_fd)
-        
+
+    # file count so that mask will be only saved simulataneously with first file
+    i = 0
     for file in glob.glob(p):
         print(file)
         out_fn = file.rpartition('/')[-1][:-4]
+        mask_fn = 'nonland'
         if save_in == 'geotiff':
             out_fp = os.path.join(out_fd, out_fn) + '.tif'
+            mask_fp = os.path.join(out_fd, mask_fn) + '.tif'
         elif save_in == 'asc':
             out_fp = os.path.join(out_fd, out_fn) + '.asc'
+            mask_fp = os.path.join(out_fd, mask_fn) + '.asc'
 
         with rasterio.open(file) as src:
             data = src.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform))
@@ -343,6 +354,11 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
                                          out_meta['transform'][3], 
                                          out_meta['transform'][4], 
                                          subset[3])
+
+            # save nonland mask at first loop iteration
+            if i == 0:
+                data_mask = np.zeros(shape=data.shape)
+                data_mask[data == 32767] = 32767
             
             if len(data.flatten()[data.flatten() == 32766]) > 0:
                 print('*** Data has', len(data.flatten()[data.flatten() == 32766]), 'nan values (=32766) ***')
@@ -356,7 +372,7 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
                              "height": data.shape[0],
                              "width": data.shape[1],
                               "transform": new_affine,
-                              "nodata": -9999})
+                              "nodata": 32767})
             
             if save_in == 'asc':
                 out_meta.update({"driver": "AAIGrid"})
@@ -364,18 +380,35 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
             with rasterio.Env():
                 with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
                     src = dst.write(data, 1)
+                            # if save_mask:
+                if i == 0:
+                    with rasterio.open(mask_fp, 'w', **out_meta, force_cellsize=True) as dst_mask:
+                        src_mask = dst_mask.write(data_mask, 1)  
                     
             if interpolate:
                 with rasterio.open(out_fp, 'r+') as src_new:
-                        src_new.nodata = np.nan
+                        #src_new.nodata = np.nan
                         data = src_new.read(1)
-                        data = data.astype('float')
-                        data[data == 32767] = np.nan
-                        data_filled = fillnodata(data, mask=src_new.read_masks(1), max_search_distance=2, smoothing_iterations=0)
+                        #data = data.astype('float')
+                        #data[data == 32767] = np.nan
+                        data_filled = fillnodata(data, 
+                                                 mask=src_new.read_masks(1), 
+                                                 max_search_distance=max_search_distance, 
+                                                 smoothing_iterations=0)
                         print('*** non land interpolated ***')
+                if i == 0:
+                    with rasterio.open(mask_fp) as src_mask_interp:
+                        mask_interp = src_mask_interp.read(1)
+                        mask_interp_fill = fillnodata(mask_interp, 
+                                                      mask=src_mask_interp.read_masks(1), 
+                                                      max_search_distance=max_search_distance, smoothing_iterations=0)
+                        
                 with rasterio.Env():
                     with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst_new:
                         src_new = dst_new.write(data_filled, 1)
+                    if i == 0:
+                        with rasterio.open(mask_fp, 'w', **out_meta, force_cellsize=True) as dst_mi:
+                            src_mi = dst_mi.write(mask_interp_fill, 1)                        
 
             if resample:
                 with rasterio.open(out_fp) as src_new:
@@ -387,7 +420,7 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
                                     out_shape=(src_new.count,int(new_height),int(new_width)),
                                     resampling=Resampling.bilinear
                                     )
-  
+                      
                     out_meta = src_new.profile.copy()
 
                     new_affine = rasterio.Affine(out_meta['transform'][0]/resample, 
@@ -400,95 +433,22 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=False, resample=
                     out_meta.update({"height": data_resampled.shape[0],
                                     "width": data_resampled.shape[1],
                                     "transform": new_affine})
+
+                if i == 0:
+                    with rasterio.open(mask_fp) as src_mask_new:
+                        data_mask_resampled = src_mask_new.read(1,
+                                        out_shape=(src_mask_new.count,int(new_height),int(new_width)),
+                                        resampling=Resampling.bilinear
+                                        )
                 with rasterio.Env():
                     with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
                         src_new = dst.write(data_resampled, 1)
+                    if i == 0:
+                        with rasterio.open(mask_fp, 'w', **out_meta, force_cellsize=True) as dst_mask:
+                            src_mask_new = dst_mask.write(data_mask_resampled, 1)
+
+        i += 1
                                 
-        if plot==True:
-            raster = rasterio.open(out_fp)
-            show(raster, vmax=100)
-
-def vmi_from_puhti_old(fd, subset, out_fd, scale=False, layer='all', plot=True, save_in='geotiff'):
-    if layer=='all':
-        p = os.path.join(fd, '*.img')
-    else:
-        p = os.path.join(fd, layer)
-
-    if not os.path.exists(out_fd):
-        # Create a new directory because it does not exist
-        os.makedirs(out_fd)
-        
-    for file in glob.glob(p):
-        print(file)
-        out_fn = file.rpartition('/')[-1][:-4]
-        if save_in == 'geotiff':
-            out_fp = os.path.join(out_fd, out_fn) + '.tif'
-        elif save_in == 'asc':
-            out_fp = os.path.join(out_fd, out_fn) + '.asc'
-
-        if scale==False:
-            src = rasterio.open(file)
-            data = src.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform))
-            profile = src.profile
-            out_meta = src.profile.copy()
-                
-            new_affine = rasterio.Affine(out_meta['transform'][0], 
-                                         out_meta['transform'][1], 
-                                         subset[0], 
-                                         out_meta['transform'][3], 
-                                         out_meta['transform'][4], 
-                                         subset[3])
-        elif scale:
-            scale_factor = scale
-            src = rasterio.open(file)
-            # resample data to target shape
-            new_width = int((subset[2]-subset[0])/(16/scale_factor))
-            new_height = int((subset[3]-subset[1])/(16/scale_factor))
-            data = src.read(1, 
-                            window=from_bounds(subset[0], subset[1], subset[2], subset[3], src.transform),
-                            out_shape=(src.count,int(new_height),int(new_width)),
-                            resampling=Resampling.bilinear
-                            )
-            # scale image transform
-            new_affine = src.transform * src.transform.scale(
-                        (scale),
-                        (scale)
-                        )    
-            out_meta = src.profile.copy()
-
-            new_affine = rasterio.Affine(out_meta['transform'][0]/scale, 
-                                         out_meta['transform'][1], 
-                                         subset[0], 
-                                         out_meta['transform'][3], 
-                                         out_meta['transform'][4]/scale, 
-                                         subset[3])
-            
-        data[data > 8000] = np.nan # NOT VERY GOOD SOLUTION; THINK THIS MORE!
-
-        if len(data.flatten()[data.flatten() == 32766]) > 0: # 32766
-                print('*** Data has', len(data.flatten()[data.flatten() == 32766]), 'nan values (=32766) ***')
-                #print('--> converted to 0 ***')
-        if len(data.flatten()[data.flatten() == 32767]) > 0: # 32767
-                print('*** Data has', len(data.flatten()[data.flatten() == 32767]), 'non land values (=32767) ***')
-                #print('--> converted to 0 ***')
-            
-        
-        # Update the metadata for geotiff
-        out_meta.update({"driver": "GTiff",
-                        "height": data.shape[0],
-                        "width": data.shape[1],
-                        "transform": new_affine,
-                        "nodata": -9999})
-            
-        if save_in == 'asc':
-            out_meta.update({"driver": "AAIGrid"})
-
-        src.close()
-                
-        with rasterio.Env():
-            with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
-                src = dst.write(data, 1)
-    
         if plot==True:
             raster = rasterio.open(out_fp)
             show(raster, vmax=100)
@@ -619,6 +579,68 @@ def maastolayer_to_raster(in_fn, out_fd, layer, ref_raster, save_in='asc', plot=
             raster = rasterio.open(out_fn)
             show(raster)
 
+def burn_water_dem(dem_fp, stream_fp, lake_fp=None, k=0.1, H=1, save_in='asc', plot=True):
+    '''
+    function to burn streams to dem (similar to that of whitebox)
+    dem_fp
+    stream_fp
+    k = parameter
+    H = parameter
+    save_in
+    '''
+
+    fp = dem_fp[:-4]
+    out_fp = str(fp + '_burned_streams')
+    
+    if save_in == 'geotiff':
+        out_fp = out_fp + '.tif'
+    elif save_in == 'asc':
+        out_fp = out_fp + '.asc'
+        
+    with rasterio.open(dem_fp) as dem_ras:
+        dem_arr = dem_ras.read(1)
+        out_meta = dem_ras.meta.copy()
+        reso = out_meta['transform'][0]
+    with rasterio.open(stream_fp) as stream_ras:
+        stream_arr = stream_ras.read(1)
+
+    if lake_fp:
+        with rasterio.open(lake_fp) as lake_ras:
+            lake_arr = lake_ras.read(1)
+            
+    # finding vectors of each stream cell
+    stream_vectors_temp = np.where(stream_arr > 0)
+    # finding vectors of each lake cell
+    lake_vectors_temp = np.where(lake_arr > 0)
+    
+    stream_vectors = np.zeros(shape=[len(stream_vectors_temp[0])+len(lake_vectors_temp[0]),2])
+
+    for i in range(len(stream_vectors_temp[0])):
+        stream_vectors[i] = stream_vectors_temp[0][i], stream_vectors_temp[1][i]
+    for i2 in range(len(lake_vectors_temp[0])):
+        new_i = len(stream_vectors_temp[0]) + i2
+        stream_vectors[new_i] = lake_vectors_temp[0][i2], lake_vectors_temp[1][i2]
+    
+    dist_to_stream = np.zeros(dem_arr.shape)
+    # looping through raster to find min distance to stream vectors
+    for row in range(dem_arr.shape[0]):
+        for col in range(dem_arr.shape[1]):
+            centroid = [row, col]
+            dist_to_stream[row,col] = np.min(np.linalg.norm(centroid - stream_vectors, axis=1))*reso
+
+    new_dem = dem_arr - (reso / (reso + dist_to_stream))**k * H
+
+    with rasterio.Env():
+        with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst:
+            src = dst.write(new_dem, 1)
+    if plot==True:
+        raster = rasterio.open(out_fp)
+        show(raster)
+        raster.close()
+        
+    return new_dem, out_fp
+
+'''
 def burn_roads_and_streams_to_dem(dem_in, dem_out, streams_in, lakes_in, roads_in, save_in='asc', plot=True):
     dem = rasterio.open(dem_in)
     dem_arr = dem.read(1)
@@ -649,7 +671,7 @@ def burn_roads_and_streams_to_dem(dem_in, dem_out, streams_in, lakes_in, roads_i
         if plot==True:
             raster = rasterio.open(dem_out)
             show(raster)
-
+'''
 
 def read_AsciiGrid(fname, setnans=True):
     """
@@ -798,6 +820,7 @@ def delineate_catchment_from_dem(dem_path, catchment_name, out_fd, outlet_file,
     #fname=os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc')
     #write_AsciiGrid_new(fname, cmask, info)
 
+    grid.to_ascii(dem, os.path.join(outpath, f'orig_dem_{catchment_name}.asc'), nodata=-9999)
     grid.to_ascii(clipped_catch, os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc'), nodata=-9999)
     grid.to_ascii(inflated_dem, os.path.join(outpath, f'inflated_dem_{catchment_name}.asc'), nodata=-9999)
     grid.to_ascii(fdir, os.path.join(outpath, f'fdir_{routing}_{catchment_name}.asc'), nodata=-9999)
