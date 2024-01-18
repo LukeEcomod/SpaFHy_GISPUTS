@@ -10,7 +10,6 @@ import glob
 import urllib
 import rasterio
 from numpy import newaxis
-import rasterio
 import rasterio.plot
 from rasterio import features
 from rasterio.windows import from_bounds
@@ -320,6 +319,12 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
 def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search_distance=2, resample=False, plot=True, save_in='geotiff'):
     '''
+    Downloads VMI data (all layers 'all' or one given layer e.g. 'kasvupaikka_vmi1x_1721.img') 
+    from given file directory (fd) for a given subset area
+    Option to interpolate over the VMI classified 'nonland' grid-cells with a given max_search_distance (1)
+    Option to assign the 'nonland' grid-cells as zeros and then interpolate only those values (2)
+    Option to resample the original 16m resolution rasters with a given scaling factor (e.g. 0.5 -> 32m)
+    Saving in output file directory (out_fd) as 'geotiff' or 'ascii'
     '''
     
     if layer=='all':
@@ -385,12 +390,9 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
                     with rasterio.open(mask_fp, 'w', **out_meta, force_cellsize=True) as dst_mask:
                         src_mask = dst_mask.write(data_mask, 1)  
                     
-            if interpolate:
+            if interpolate == 1:
                 with rasterio.open(out_fp, 'r+') as src_new:
-                        #src_new.nodata = np.nan
                         data = src_new.read(1)
-                        #data = data.astype('float')
-                        #data[data == 32767] = np.nan
                         data_filled = fillnodata(data, 
                                                  mask=src_new.read_masks(1), 
                                                  max_search_distance=max_search_distance, 
@@ -408,7 +410,16 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
                         src_new = dst_new.write(data_filled, 1)
                     if i == 0:
                         with rasterio.open(mask_fp, 'w', **out_meta, force_cellsize=True) as dst_mi:
-                            src_mi = dst_mi.write(mask_interp_fill, 1)                        
+                            src_mi = dst_mi.write(mask_interp_fill, 1)
+
+            elif interpolate == 2:
+                with rasterio.open(out_fp, 'r+') as src_new:
+                        data = src_new.read(1)
+                        data_filled = interpolate_over_mask(data=data, mask=data_mask)
+        
+                with rasterio.Env():
+                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst_new:
+                        src_new = dst_new.write(data_filled, 1)         
 
             if resample:
                 with rasterio.open(out_fp) as src_new:
@@ -452,6 +463,32 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
         if plot==True:
             raster = rasterio.open(out_fp)
             show(raster, vmax=100)
+
+def interpolate_over_mask(data, mask):
+    '''
+    Interpolates data raster only over a given mask
+    First assigns data to zero where mask exist, then uses 4-neighbors (and the center 0's)
+    '''
+    i_mask = np.where(mask > 1) # = x,y
+    temp_data = data.copy()
+    temp_data[mask > 0] = 0
+    a_e = i_mask[0]-1 # x
+    a_w = i_mask[0]+1 # x
+    a_n = i_mask[1]-1 # y
+    a_s = i_mask[1]+1 # y
+    a_e[a_e < 0] = 0
+    a_w[a_w >= mask.shape[0]] = mask.shape[0]-1
+    a_n[a_n <= 0] = 0
+    a_s[a_s >= mask.shape[1]] = mask.shape[1]-1
+
+    east = tuple((a_e, i_mask[1]))
+    west = tuple((a_w, i_mask[1]))
+    north = tuple((i_mask[0], a_n))
+    south = tuple((i_mask[0], a_s))
+    new_data = temp_data.copy()
+    new_data[mask > 1] = np.mean([temp_data[i_mask], temp_data[east], temp_data[west], temp_data[north], temp_data[south]], axis=0)
+    
+    return new_data
 
 
 def needlemass_to_lai(in_fd, in_ff, out_fd, species, save_in='asc', plot=True):

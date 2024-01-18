@@ -36,7 +36,8 @@ def create_catchment(fpath,
                 'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
     water = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
                   'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
-                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}        
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}    
+    
     if set_non_forest_as=='nan':
         for key in nofor.keys():
             nofor[key] = np.NaN
@@ -54,7 +55,7 @@ def create_catchment(fpath,
     
     ''' *** READING ALL MAPS *** '''
     # NLF DEM and derivatives
-    dem, info, pos, cellsize, nodata = read_AsciiGrid(os.path.join(fpath, 'dem/korkeusmalli_16m.asc'))
+    dem, info, pos, cellsize, nodata = read_AsciiGrid(os.path.join(fpath, 'dem/korkeusmalli_32m.asc'))
     cmask, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/cmask_d8_kuivajarvi_fill.asc'))
     flowacc, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/acc_d8_kuivajarvi.asc'))
     flowpoint, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, 'dem/fdir_d8_kuivajarvi.asc'))
@@ -806,7 +807,7 @@ def tree_density(diameter, ba):
     tree_ba= np.pi * (0.5*diameter)**2 # the area of an average tree m2
     no_trees = ba / (tree_ba + EPS) # how many trees per total basal area
     # clearcuts cause noise; set n to zero
-    no_trees[diameter<0.01] = 0.0
+    no_trees[diameter<0.03] = 0.0
     return no_trees
 
 
