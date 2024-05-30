@@ -119,6 +119,11 @@ def dem_from_puhti_2m(fp, subset, out_fp, plot=True, save_in='geotiff'):
         profile = src.profile
 
     out_meta = profile.copy()
+
+    out_fd = os.path.dirname(out_fp)
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
     
     new_affine = rasterio.Affine(out_meta['transform'][0], 
                                  out_meta['transform'][1], 
@@ -156,20 +161,24 @@ def dem_from_puhti_2m(fp, subset, out_fp, plot=True, save_in='geotiff'):
         
     return raster_dem, out_fp    
 
-def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'):
+def resample_raster(fp, out_fp, scale_factor=0.125, resampling_method='bilinear', plot=True, save_in='geotiff'):
     '''
     fp = file path to be downloaded
     out_fp = file path to be saved
     scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125)   
     '''
 
-        
+    if resampling_method == 'bilinear':
+        resample_as = Resampling.bilinear
+    if resampling_method == 'nearest':
+        resample_as = Resampling.nearest
+
     with rasterio.open(fp) as dataset:
         
         # resample data to target shape
         data = dataset.read(1, 
                 out_shape=(dataset.count,int(dataset.height * scale_factor),int(dataset.width * scale_factor)),
-                resampling=Resampling.bilinear
+                resampling=resample_as
                 )
 
         # scale image transform
@@ -195,6 +204,37 @@ def resample_raster(fp, out_fp, scale_factor=0.125, plot=True, save_in='geotiff'
     if plot==True:
         show(raster)
     return raster, out_fp
+
+def open_raster_with_subset(fp, out_fp, subset, plot=True, save_in='asc'):
+    
+    with rasterio.open(fp) as dataset:
+        data = dataset.read(1, window=from_bounds(subset[0], subset[1], subset[2], subset[3], dataset.transform))
+        data = data.astype(float)
+        out_meta = dataset.profile.copy()
+        
+    new_affine = rasterio.Affine(out_meta['transform'][0], 
+                                out_meta['transform'][1], 
+                                subset[0], 
+                                out_meta['transform'][3], 
+                                out_meta['transform'][4], 
+                                subset[3])   
+
+    out_meta.update({"height": data.shape[0],
+                      "width": data.shape[1],
+                      "transform": new_affine,
+                    }
+                    )
+
+    if save_in=='asc':
+        out_meta.update({"driver": "AAIGrid"})  
+        
+    with rasterio.open(out_fp, 'w', **out_meta) as dst:
+        src = dst.write(data, 1)
+            
+    raster = rasterio.open(out_fp)
+    if plot==True:
+        show(raster)
+
 
 def resample_raster_set(fd, file, out_fd, scale_factor=0.5, plot=True, save_in='asc'):
     '''
@@ -629,6 +669,11 @@ def burn_water_dem(dem_fp, stream_fp, lake_fp=None, k=0.1, H=1, save_in='asc', p
     fp = dem_fp[:-4]
     out_fp = str(fp + '_burned_streams')
     
+    out_fd = os.path.dirname(out_fp)
+    if not os.path.exists(out_fd):
+        # Create a new directory because it does not exist
+        os.makedirs(out_fd)
+        
     if save_in == 'geotiff':
         out_fp = out_fp + '.tif'
     elif save_in == 'asc':
@@ -677,38 +722,6 @@ def burn_water_dem(dem_fp, stream_fp, lake_fp=None, k=0.1, H=1, save_in='asc', p
         
     return new_dem, out_fp
 
-'''
-def burn_roads_and_streams_to_dem(dem_in, dem_out, streams_in, lakes_in, roads_in, save_in='asc', plot=True):
-    dem = rasterio.open(dem_in)
-    dem_arr = dem.read(1)
-    stream = rasterio.open(streams_in)
-    stream_arr = stream.read(1)
-    lake = rasterio.open(lakes_in)
-    lake_arr = lake.read(1)    
-    road = rasterio.open(roads_in)
-    road_arr = road.read(1)
-
-    stream_i = np.where((stream_arr > 0) | (lake_arr > 0))  # where stream or lake exist
-    road_i = np.where((road_arr > 0) & (stream_arr < 0))  # where road exist and stream does not exist
-    dem_arr[stream_i] = dem_arr[stream_i] - 1 # dropping dem 1 meter where stream_i
-    dem_arr[road_i] = dem_arr[road_i] + 1 # lifting dem 1 meter where road_i
-
-    meta = dem.meta.copy()
-    meta.update(compress='lzw')
-
-    if save_in == 'geotiff':
-        meta.update({"driver": "GTiff"})        
-    elif save_in == 'asc':
-        meta.update({"driver": "AAIGrid"})    
-    
-    with rasterio.open(dem_out, 'w+', **meta) as out:
-        out_arr = out.read(1)
-        out.write_band(1, dem_arr)
-        
-        if plot==True:
-            raster = rasterio.open(dem_out)
-            show(raster)
-'''
 
 def read_AsciiGrid(fname, setnans=True):
     """
@@ -812,8 +825,8 @@ def delineate_catchment_from_dem(dem_path, catchment_name, out_fd, outlet_file,
     dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
     fdir = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
     acc = grid.accumulation(fdir, dirmap=dirmap, routing=routing)
-    aspect = grid.flowdir(inflated_dem, dirmap=dirmap, routing='d8')
-    slope = grid.cell_slopes(inflated_dem, fdir)
+    aspect = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
+    slope = grid.cell_slopes(inflated_dem, fdir, routing=routing)
 
     eps = np.finfo(float).eps
 
@@ -937,9 +950,33 @@ def fill_cmask_holes(fp, fmt='%i', plot=True):
 
 
 
+def common_cmask(files):
+    lens = len(files)
+    i = 0
+    for file in files:
+        cnum = int(file.split('/')[-1].split('_')[2])
+        temp_data = read_AsciiGrid(file)
+        if i == 0:
+            info = temp_data[1]
+            out_fn = os.path.join(os.path.dirname(file), 'cmask_all.asc')
+            final_data = temp_data[0].copy() # new ascii
+            final_data[np.isfinite(final_data)] = cnum
+        if (cnum != 0) & (i != 0):
+            final_data[(temp_data[0] == 1) & (np.isnan(final_data))] = cnum
+        else:
+            whole = temp_data[0].copy()
+        i += 1
+        if i == lens:
+            final_data[(whole == 1) & (np.isnan(final_data))] = 0
+    
+        del temp_data
 
+    write_AsciiGrid(out_fn, final_data, info)
+    masked_array = np.ma.array(final_data, mask=(final_data == -9999))
+    plt.imshow(masked_array, vmin=0, vmax=14); plt.colorbar()
 
-
+    return final_data
+            
 
 
 
