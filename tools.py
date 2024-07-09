@@ -161,6 +161,51 @@ def dem_from_puhti_2m(fp, subset, out_fp, plot=True, save_in='geotiff'):
         
     return raster_dem, out_fp    
 
+
+def resample_raster2(fp, out_fp, scale_factor=0.125, resampling_method='bilinear', plot=True, save_in='geotiff'):
+    '''
+    fp = file path to be downloaded
+    out_fp = file path to be saved
+    scaling factor (e.g. if 2m to be resampled to 16m scale_factor=0.125)   
+    '''
+
+    if resampling_method == 'bilinear':
+        resample_as = Resampling.bilinear
+    if resampling_method == 'nearest':
+        resample_as = Resampling.nearest
+
+    with rasterio.open(fp) as dataset:
+        
+        # resample data to target shape
+        data = dataset.read(1, 
+                out_shape=(dataset.count,int(dataset.height / scale_factor),int(dataset.width / scale_factor)),
+                resampling=resample_as
+                )
+
+        # scale image transform
+        transform = dataset.transform * dataset.transform.scale(
+            (dataset.width / data.shape[-1]),
+            (dataset.height / data.shape[-2])
+        )    
+        out_meta = dataset.profile.copy()
+
+        out_meta.update({"driver": "GTiff",
+                 "height": data.shape[0],
+                  "width": data.shape[1],
+                  "transform": transform,
+                        }
+                    )
+        if save_in=='asc':
+            out_meta.update({"driver": "AAIGrid"})
+        
+        with rasterio.open(out_fp, 'w', **out_meta) as dst:
+            src = dst.write(data, 1)
+            
+    raster = rasterio.open(out_fp)
+    if plot==True:
+        show(raster)
+    return raster, out_fp
+
 def resample_raster(fp, out_fp, scale_factor=0.125, resampling_method='bilinear', plot=True, save_in='geotiff'):
     '''
     fp = file path to be downloaded
@@ -618,6 +663,39 @@ def soilmap_from_puhti(soilmap, subset, out_fd, ref_raster, soildepth='surface',
         if plot==True:
             raster = rasterio.open(out_fn)
             show(raster)
+
+def rasterize_shapefile(shapefile, burn_field, out_fp, ref_raster, subset=None, plot=True, save_in='geotiff'):
+
+    fields = [burn_field, 'geometry']
+    shape = gpd.read_file(shapefile, include_fields=fields, bbox=subset)
+
+    rst = rasterio.open(ref_raster)
+    meta = rst.meta.copy()
+    meta.update(compress='lzw')
+    
+    shape[burn_field] = shape[burn_field].astype("float64")
+
+    if save_in == 'geotiff':
+        meta.update({"driver": "GTiff"})        
+    elif save_in == 'asc':
+        meta.update({"driver": "AAIGrid"})
+        
+    with rasterio.open(out_fp, 'w+', **meta) as out:
+        out_arr = out.read(1)
+
+        # this is where we create a generator of geom, value pairs to use in rasterizing
+        shapes = ((geom,value) for geom, value in zip(shape.geometry, shape[burn_field]))
+
+        burned = features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=out.transform)
+        burned[burned == 0] = -9999
+        
+        #for key in mpk.keys():
+        #    burned[burned == key] = mpk[key]
+        out.write_band(1, burned)
+        if plot==True:
+            raster = rasterio.open(out_fp)
+            show(raster)
+            
 
 def maastolayer_to_raster(in_fn, out_fd, layer, ref_raster, save_in='asc', plot=True):
     '''
