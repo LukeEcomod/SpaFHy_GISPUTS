@@ -16,6 +16,7 @@ from rasterio.windows import from_bounds
 from rasterio.plot import show
 from rasterio.enums import Resampling
 from rasterio.fill import fillnodata
+from rasterio.warp import reproject, Resampling, calculate_default_transform
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import xarray as xr
@@ -279,6 +280,30 @@ def open_raster_with_subset(fp, out_fp, subset, plot=True, save_in='asc'):
     raster = rasterio.open(out_fp)
     if plot==True:
         show(raster)
+
+def fill_layer_na_with_layer(priority_layer, secondary_layer, out_fp, save_in='geotiff'):
+
+    with rasterio.open(priority_layer) as src1:
+        data1 = src1.read(1)
+        data1 = data1.astype(float)
+        meta1 = src1.meta.copy()
+        nodata1 = meta1['nodata']
+        
+    with rasterio.open(secondary_layer) as src2:
+        data2 = src2.read(1)
+        data2 = data2.astype(float)
+        meta2 = src2.meta.copy()
+        nodata2 = meta2['nodata']
+        
+    data1[data1 == nodata1] = data2[data1 == nodata1]
+    data1 = data1.astype(int)
+
+    out_meta = meta2.copy()
+    if save_in=='asc':
+        out_meta.update({"driver": "AAIGrid"})  
+        
+    with rasterio.open(out_fp, 'w+', **out_meta) as out:
+            src = out.write(data1, 1)
 
 
 def resample_raster_set(fd, file, out_fd, scale_factor=0.5, plot=True, save_in='asc'):
@@ -672,7 +697,8 @@ def rasterize_shapefile(shapefile, burn_field, out_fp, ref_raster, subset=None, 
     rst = rasterio.open(ref_raster)
     meta = rst.meta.copy()
     meta.update(compress='lzw')
-    
+    meta.update({"nodata": -9999})
+
     shape[burn_field] = shape[burn_field].astype("float64")
 
     if save_in == 'geotiff':
@@ -686,9 +712,8 @@ def rasterize_shapefile(shapefile, burn_field, out_fp, ref_raster, subset=None, 
         # this is where we create a generator of geom, value pairs to use in rasterizing
         shapes = ((geom,value) for geom, value in zip(shape.geometry, shape[burn_field]))
 
-        burned = features.rasterize(shapes=shapes, fill=0, out=out_arr, transform=out.transform)
+        burned = features.rasterize(shapes=shapes, fill=-9999, out=out_arr, transform=out.transform)
         burned[burned == 0] = -9999
-        
         #for key in mpk.keys():
         #    burned[burned == key] = mpk[key]
         out.write_band(1, burned)
@@ -990,6 +1015,48 @@ def delineate_catchment_from_dem(dem_path, catchment_name, out_fd, outlet_file,
 
     return subset
 
+def dem_derivatives(dem_path, out_fd, routing='d8'):
+
+    outpath = os.path.join(out_fd)
+    if not os.path.exists(outpath):
+        os.makedirs(outpath)
+    warnings.simplefilter("ignore", UserWarning)
+
+    #raster = xr.open_rasterio(dem_path)
+    grid = Grid.from_raster(dem_path)
+    dem = grid.read_raster(dem_path)
+
+    pit_filled_dem = grid.fill_pits(dem)
+    flooded_dem = grid.fill_depressions(pit_filled_dem)
+    inflated_dem = grid.resolve_flats(flooded_dem)
+
+    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
+    fdir = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
+    acc = grid.accumulation(fdir, dirmap=dirmap, routing=routing)
+    aspect = grid.flowdir(inflated_dem, dirmap=dirmap, routing=routing)
+    slope = grid.cell_slopes(inflated_dem, fdir, routing=routing)
+
+    eps = np.finfo(float).eps
+
+    twi = np.log((acc+1) / (np.tan(slope) + eps))
+
+    info = {'ncols':dem.shape[0],
+        'nrows':dem.shape[1],
+        'xllcorner':dem.bbox[0],
+        'yllcorner':dem.bbox[1],
+        'cellsize':dem.affine[0],
+        'NODATA_value':-9999}
+    
+
+    grid.to_ascii(dem, os.path.join(outpath, f'orig_dem.asc'), nodata=-9999)
+    grid.to_ascii(inflated_dem, os.path.join(outpath, f'inflated_dem.asc'), nodata=-9999)
+    grid.to_ascii(fdir, os.path.join(outpath, f'fdir_{routing}.asc'), nodata=-9999)
+    grid.to_ascii(acc, os.path.join(outpath, f'acc_{routing}.asc'), nodata=-9999)
+    grid.to_ascii(slope, os.path.join(outpath, f'slope_{routing}.asc'), nodata=-9999)
+    grid.to_ascii(aspect, os.path.join(outpath, f'aspect_{routing}.asc'), nodata=-9999)
+    grid.to_ascii(twi, os.path.join(outpath, f'twi_{routing}.asc'), nodata=-9999)
+    
+
 def fill_cmask_holes(fp, fmt='%i', plot=True):
     '''
     for float fmt='%.18e'
@@ -1026,8 +1093,6 @@ def fill_cmask_holes(fp, fmt='%i', plot=True):
     #np.savetxt(fid, new_arr, fmt=fmt, delimiter=' ')
     #np.savetxt(fid, new_arr.astype(int), fmt=fmt, delimiter=' ')
 
-
-
 def common_cmask(files):
     lens = len(files)
     i = 0
@@ -1056,16 +1121,59 @@ def common_cmask(files):
     return final_data
             
 
+def reproj_match(infile, match, outfile, resampling_method='bilinear', save_in='asc'):
+    """Reproject a file to match the shape and projection of existing raster. 
+    
+    Parameters
+    ----------
+    infile : (string) path to input file to reproject
+    match : (string) path to raster with desired shape and projection 
+    outfile : (string) path to output file tif
+    """
 
+    if resampling_method == 'bilinear':
+        resample_as = Resampling.bilinear
+    if resampling_method == 'nearest':
+        resample_as = Resampling.nearest
+    
+    # open input
+    with rasterio.open(infile) as src:
+        src_transform = src.transform
+        
+        # open input to match
+        with rasterio.open(match) as match:
+            dst_crs = match.crs
+            
+            # calculate the output transform matrix
+            dst_transform, dst_width, dst_height = calculate_default_transform(
+                src.crs,     # input CRS
+                dst_crs,     # output CRS
+                match.width,   # input width
+                match.height,  # input height 
+                *match.bounds,  # unpacks input outer boundaries (left, bottom, right, top)
+            )
 
-
-
-
-
-
-
-
-
-
-
+        # set properties for output
+        dst_kwargs = src.meta.copy()
+        dst_kwargs.update({"crs": dst_crs,
+                           "transform": dst_transform,
+                           "width": dst_width,
+                           "height": dst_height,
+                           "nodata": 0})
+        if save_in=='asc':
+            dst_kwargs.update({"driver": "AAIGrid"})
+            
+        print("Coregistered to shape:", dst_height,dst_width,'\n Affine',dst_transform)
+        # open output
+        with rasterio.open(outfile, "w", **dst_kwargs) as dst:
+            # iterate through bands and write using reproject function
+            for i in range(1, src.count + 1):
+                reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=dst_transform,
+                    dst_crs=dst_crs,
+                    resampling=resample_as)
 
