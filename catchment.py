@@ -32,15 +32,15 @@ def create_catchment(fpath,
     pristpeat = {'vol': 0.0, 'ba': 0.0, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
                  'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01,
                 'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
-    nofor = {'vol': 0.0, 'ba': 0.0, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
-                 'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01,
-                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.0, 'site': 0}
-    opeatl = {'vol': 0.0, 'ba': 0.0, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
-                  'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01, 'bmleaf': 0.01,
+    nofor = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
+                 'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}
+    opeatl = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
+                  'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
                 'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
     water = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
                   'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
-                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}    
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 17, 'low_soil': 5, 'top_soil': 5}    
     
     if set_non_forest_as=='nan':
         for key in nofor.keys():
@@ -155,7 +155,8 @@ def create_catchment(fpath,
     nonland[np.isfinite(nonland)] = 0.0
     nonland[~np.isfinite(nonland)] = 1.0
     #nonland[road == 1.0] = 0.0  
-    #nonland[stream == 1.0] = 0.0  
+    #nonland[stream == 1.0] = 0.0
+    
 
     """
     gtk soilmap: read and re-classify into 4 texture classes
@@ -200,7 +201,7 @@ def create_catchment(fpath,
     topsoil200[np.in1d(topsoil200, MediumTextured)] = 2.0
     topsoil200[np.in1d(topsoil200, FineTextured)] = 3.0
     topsoil200[np.in1d(topsoil200, Peats)] = 4.0
-    topsoil200[np.in1d(topsoil200, Water)] = 0.0
+    topsoil200[np.in1d(topsoil200, Water)] = 5.0
     topsoil200[np.where((topsoil200 == 4.0) & (peatland.flatten() != 1.0) & (topsoil200 != 1.0))] = 2.0
     # reshape back to original grid
     topsoil200 = topsoil200.reshape(rs, cs)
@@ -213,7 +214,7 @@ def create_catchment(fpath,
     topsoil20[np.in1d(topsoil20, MediumTextured)] = 2.0
     topsoil20[np.in1d(topsoil20, FineTextured)] = 3.0
     topsoil20[np.in1d(topsoil20, Peats)] = 4.0
-    topsoil20[np.in1d(topsoil20, Water)] = 0.0
+    topsoil20[np.in1d(topsoil20, Water)] = 5.0
     topsoil20[np.where((topsoil20 == 4.0) & (peatland.flatten() != 1.0) & (topsoil20 != 1.0))] = 2.0
     # reshape back to original grid
     topsoil20 = topsoil20.reshape(rs, cs)
@@ -227,7 +228,7 @@ def create_catchment(fpath,
     lowsoil200[np.in1d(lowsoil200, MediumTextured)] = 2.0
     lowsoil200[np.in1d(lowsoil200, FineTextured)] = 3.0
     lowsoil200[np.in1d(lowsoil200, Peats)] = 4.0
-    lowsoil200[np.in1d(lowsoil200, Water)] = np.NaN
+    lowsoil200[np.in1d(lowsoil200, Water)] = 5.0
     lowsoil200[np.where((lowsoil200 == 4.0) & (peatland.flatten() != 1.0) & (lowsoil200 != 1.0))] = 2.0
     # reshape back to original grid
     lowsoil200 = lowsoil200.reshape(rb, cb)
@@ -240,7 +241,7 @@ def create_catchment(fpath,
     lowsoil20[np.in1d(lowsoil20, MediumTextured)] = 2.0
     lowsoil20[np.in1d(lowsoil20, FineTextured)] = 3.0
     lowsoil20[np.in1d(lowsoil20, Peats)] = 4.0
-    lowsoil20[np.in1d(lowsoil20, Water)] = np.NaN
+    lowsoil20[np.in1d(lowsoil20, Water)] = 5.0
     lowsoil20[np.where((lowsoil20 == 4.0) & (peatland.flatten() != 1.0) & (lowsoil20 != 1.0))] = 2.0
     # reshape back to original grid
     lowsoil20 = lowsoil20.reshape(rb, cb)
@@ -256,10 +257,10 @@ def create_catchment(fpath,
     # update waterbody mask
     #ix = np.where(topsoil == -1.0)
     #stream[ix] = 1.0
-    stream[~np.isfinite(stream)] = 0.0
+    stream[~np.isfinite(stream)] = np.nan
 
     road[~np.isfinite(road)] = 0.0
-    lake[~np.isfinite(lake)] = 0.0
+    lake[~np.isfinite(lake)] = np.nan
     rockm[~np.isfinite(rockm)] = 0.0
     peatland[~np.isfinite(peatland)] = 0.0
     paludified[~np.isfinite(paludified)] = 0.0
@@ -267,6 +268,17 @@ def create_catchment(fpath,
     drainedlands[drainedlands == 1] = 0.0
     drainedlands[drainedlands == 2] = 1.0
 
+    # TRYING TO SET LAKE BORDERS TO STREAM
+    #a = lake.copy()
+    #a = a.astype(int)
+    #k = np.zeros((3,3),dtype=int)
+    #k[1] = 1
+    #k[:,1] = 1 # for 8-connected
+    #lake_boundaries = binary_dilation(a==0, k) & a
+    #stream[lake_boundaries == 1] = 1.0
+    #lake[lake_boundaries == 1] = 0.0
+    #cmask[lake == 1.0] = np.nan
+    
     # sitetype_comb combines information from maintype and sitetype
     # forest soiltypes 1:6 as they are in sitetype
     # peatland soiltypes 10 + as they are in sitetype
@@ -344,8 +356,8 @@ def create_catchment(fpath,
     
     # manipulate non forest, peatlands and water
     # first water (lakes)
-    lowsoil[ix_w] = water['site']
-    topsoil[ix_w] = water['site']
+    lowsoil[ix_w] = water['low_soil']
+    topsoil[ix_w] = water['top_soil']
     maintype[ix_w] = water['site']
     sitetype[ix_w] = water['site']
     sitetype_comb[ix_w] = water['site']
@@ -728,15 +740,15 @@ def create_pristine_catchment(fpath,
                     'ditch': 0.0} # [m] ditch depth
                  }
     
-    nofor = {'vol': 0.0, 'ba': 0.0, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
-                 'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.01, 'bmroot': 0.01, 'bmleaf': 0.01,
-                'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
-    opeatl = {'vol': 0.0, 'ba': 0.0, 'height': 0.1, 'cf': 0.01, 'age': 0.0, 'diameter': 0.0,
-                  'LAIpine': 0.01, 'LAIspruce': 0.01, 'LAIdecid': 0.1, 'bmroot': 0.01, 'bmleaf': 0.01,
+    nofor = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
+                 'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}
+    opeatl = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
+                  'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
                 'bmstump': 0.01, 'bmcore': 0.01, 'bmall': 0.01, 'site': 0}
     water = {'vol': 0.0, 'ba': 0.0, 'height': 0.0, 'cf': 0.0, 'age': 0.0, 'diameter': 0.0,
                   'LAIpine': 0.0, 'LAIspruce': 0.0, 'LAIdecid': 0.0, 'bmroot': 0.0, 'bmleaf': 0.0,
-                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 0}    
+                'bmstump': 0.0, 'bmcore': 0.0, 'bmall': 0.0, 'site': 17, 'low_soil': 5, 'top_soil': 5}     
     
     if set_non_forest_as=='nan':
         for key in nofor.keys():
@@ -896,7 +908,7 @@ def create_pristine_catchment(fpath,
     topsoil200[np.in1d(topsoil200, MediumTextured)] = 2.0
     topsoil200[np.in1d(topsoil200, FineTextured)] = 3.0
     topsoil200[np.in1d(topsoil200, Peats)] = 4.0
-    topsoil200[np.in1d(topsoil200, Water)] = 0.0
+    topsoil200[np.in1d(topsoil200, Water)] = 5.0
     topsoil200[np.where((topsoil200 == 4.0) & (peatland.flatten() != 1.0) & (topsoil200 != 1.0))] = 2.0
     # reshape back to original grid
     topsoil200 = topsoil200.reshape(rs, cs)
@@ -909,7 +921,7 @@ def create_pristine_catchment(fpath,
     topsoil20[np.in1d(topsoil20, MediumTextured)] = 2.0
     topsoil20[np.in1d(topsoil20, FineTextured)] = 3.0
     topsoil20[np.in1d(topsoil20, Peats)] = 4.0
-    topsoil20[np.in1d(topsoil20, Water)] = 0.0
+    topsoil20[np.in1d(topsoil20, Water)] = 5.0
     topsoil20[np.where((topsoil20 == 4.0) & (peatland.flatten() != 1.0) & (topsoil20 != 1.0))] = 2.0
     # reshape back to original grid
     topsoil20 = topsoil20.reshape(rs, cs)
@@ -923,7 +935,7 @@ def create_pristine_catchment(fpath,
     lowsoil200[np.in1d(lowsoil200, MediumTextured)] = 2.0
     lowsoil200[np.in1d(lowsoil200, FineTextured)] = 3.0
     lowsoil200[np.in1d(lowsoil200, Peats)] = 4.0
-    lowsoil200[np.in1d(lowsoil200, Water)] = np.NaN
+    lowsoil200[np.in1d(lowsoil200, Water)] = 5.0
     lowsoil200[np.where((lowsoil200 == 4.0) & (peatland.flatten() != 1.0) & (lowsoil200 != 1.0))] = 2.0
     # reshape back to original grid
     lowsoil200 = lowsoil200.reshape(rb, cb)
@@ -936,7 +948,7 @@ def create_pristine_catchment(fpath,
     lowsoil20[np.in1d(lowsoil20, MediumTextured)] = 2.0
     lowsoil20[np.in1d(lowsoil20, FineTextured)] = 3.0
     lowsoil20[np.in1d(lowsoil20, Peats)] = 4.0
-    lowsoil20[np.in1d(lowsoil20, Water)] = np.NaN
+    lowsoil20[np.in1d(lowsoil20, Water)] = 5.0
     lowsoil20[np.where((lowsoil20 == 4.0) & (peatland.flatten() != 1.0) & (lowsoil20 != 1.0))] = 2.0
     # reshape back to original grid
     lowsoil20 = lowsoil20.reshape(rb, cb)
@@ -952,10 +964,10 @@ def create_pristine_catchment(fpath,
     # update waterbody mask
     #ix = np.where(topsoil == -1.0)
     #stream[ix] = 1.0
-    stream[~np.isfinite(stream)] = 0.0
+    stream[~np.isfinite(stream)] = np.nan
 
     road[~np.isfinite(road)] = 0.0
-    lake[~np.isfinite(lake)] = 0.0
+    lake[~np.isfinite(lake)] = np.nan
     rockm[~np.isfinite(rockm)] = 0.0
     peatland[~np.isfinite(peatland)] = 0.0
     paludified[~np.isfinite(paludified)] = 0.0
@@ -995,8 +1007,6 @@ def create_pristine_catchment(fpath,
     ix_sm = np.where((drainedlands > 0) & (maintype == 2)) # spruce mire
     ix_pm = np.where((drainedlands > 0) & (maintype == 3)) # pine mire
     
-    #cmask[ix_w] = np.NaN  # NOTE: leaves waterbodies out of catchment mask
-
     # units
     cd = 1e-2*cd # cm to m
     vol = 1e-4*vol # m3/ha to m3/m2
@@ -1043,8 +1053,8 @@ def create_pristine_catchment(fpath,
     
     # manipulate non forest, peatlands and water
     # first water (lakes)
-    lowsoil[ix_w] = water['site']
-    topsoil[ix_w] = water['site']
+    lowsoil[ix_w] = water['low_soil']
+    topsoil[ix_w] = water['top_soil']
     maintype[ix_w] = water['site']
     sitetype[ix_w] = water['site']
     sitetype_comb[ix_w] = water['site']

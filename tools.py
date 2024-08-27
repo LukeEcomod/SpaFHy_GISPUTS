@@ -27,6 +27,7 @@ import pandas as pd
 from matplotlib import colors
 import warnings
 import geopandas as gpd
+from rasterio.crs import CRS
 
 def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=True, save_in='asc'):
 
@@ -487,7 +488,8 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
                              "height": data.shape[0],
                              "width": data.shape[1],
                               "transform": new_affine,
-                              "nodata": 32767})
+                              "nodata": 32767,
+                              "crs": CRS.from_epsg(3067)})
             
             if save_in == 'asc':
                 out_meta.update({"driver": "AAIGrid"})
@@ -986,6 +988,7 @@ def delineate_catchment_from_dem(dem_path, catchment_name, out_fd, outlet_file,
     if fill_holes==True:
         in_fn = os.path.join(outpath, f'cmask_{routing}_{catchment_name}.asc')
         filled_cmask, cmask_fp = fill_cmask_holes(in_fn, plot=False)
+        filled_cmask[filled_cmask == 0] = -9999
 
     cmask_fill_grid = Grid.from_ascii(cmask_fp)
     cmask_fill_raster = grid.read_ascii(cmask_fp)
