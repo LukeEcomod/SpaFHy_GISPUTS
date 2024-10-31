@@ -1570,6 +1570,7 @@ def stem_volume_to_LAI(V, tree='spruce'):
     
     return LAI
 
+
 def stem_volume_to_LAI_mVMI_nonlinear(V, tree='spruce'):
     '''
     Based on S.L. fitted nonlinear models using mVMI data on mineral soil

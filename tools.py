@@ -15,6 +15,7 @@ from rasterio import features
 from rasterio.windows import from_bounds
 from rasterio.plot import show
 from rasterio.enums import Resampling
+from rasterio.mask import mask
 from rasterio.fill import fillnodata
 from rasterio.warp import reproject, Resampling, calculate_default_transform
 import matplotlib.pyplot as plt
@@ -798,15 +799,20 @@ def burn_water_dem(dem_fp, stream_fp, lake_fp=None, k=0.1, H=1, save_in='asc', p
     # finding vectors of each stream cell
     stream_vectors_temp = np.where(stream_arr > 0)
     # finding vectors of each lake cell
-    lake_vectors_temp = np.where(lake_arr > 0)
-    
-    stream_vectors = np.zeros(shape=[len(stream_vectors_temp[0])+len(lake_vectors_temp[0]),2])
+    if lake_fp:
+        lake_vectors_temp = np.where(lake_arr > 0)
+
+    if lake_fp:
+        stream_vectors = np.zeros(shape=[len(stream_vectors_temp[0])+len(lake_vectors_temp[0]),2])
+    else:
+        stream_vectors = np.zeros(shape=[len(stream_vectors_temp[0]),2])
 
     for i in range(len(stream_vectors_temp[0])):
         stream_vectors[i] = stream_vectors_temp[0][i], stream_vectors_temp[1][i]
-    for i2 in range(len(lake_vectors_temp[0])):
-        new_i = len(stream_vectors_temp[0]) + i2
-        stream_vectors[new_i] = lake_vectors_temp[0][i2], lake_vectors_temp[1][i2]
+    if lake_fp:
+        for i2 in range(len(lake_vectors_temp[0])):
+            new_i = len(stream_vectors_temp[0]) + i2
+            stream_vectors[new_i] = lake_vectors_temp[0][i2], lake_vectors_temp[1][i2]
     
     dist_to_stream = np.zeros(dem_arr.shape)
     # looping through raster to find min distance to stream vectors
@@ -1179,4 +1185,48 @@ def reproj_match(infile, match, outfile, resampling_method='bilinear', save_in='
                     dst_transform=dst_transform,
                     dst_crs=dst_crs,
                     resampling=resample_as)
+
+
+
+def mask_raster_with_shapefile(raster_path, shapefile_path, output_path, nodata_value=None):
+    """
+    Mask a raster file using a shapefile, setting NoData values outside the shapefile.
+    
+    Parameters:
+    - raster_path: str, path to the input raster file.
+    - shapefile_path: str, path to the input shapefile.
+    - output_path: str, path to the output masked raster file.
+    - nodata_value: float or int, optional NoData value to use. If None, will use the raster's NoData value.
+    """
+    
+    # Read the shapefile
+    shapefile = gpd.read_file(shapefile_path)
+    
+    # Open the raster file
+    with rasterio.open(raster_path) as src:
+        # Read the raster's profile
+        profile = src.profile
+        
+        nodata_value_old = profile.get('nodata')  # Get existing NoData value
+        nodata_value_new = nodata_value  # Get existing NoData value
+        
+        # Mask the raster with the shapefile
+        out_image, out_transform = mask(src, shapefile.geometry, crop=True)
+        
+        # Set NoData values outside the mask
+        if nodata_value is not None:
+            out_image = np.where(out_image == nodata_value_old, nodata_value, out_image)
+            profile['nodata'] = nodata_value
+            
+        # Update the profile with the new transform and dimensions
+        profile.update({
+            'height': out_image.shape[1],
+            'width': out_image.shape[2],
+            'transform': out_transform
+        })
+        
+        # Write the masked raster to a new file
+        with rasterio.open(output_path, 'w', **profile) as dst:
+            dst.write(out_image)
+
 
