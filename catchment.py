@@ -7,7 +7,7 @@ import os
 import netCDF4
 import math
 
-def create_catchment(fpath, 
+def create_catchment(fpath,
                      set_non_forest_as='null',
                      plotgrids=True, 
                      plotdistr=False):
@@ -80,7 +80,12 @@ def create_catchment(fpath,
     lowsoil200, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'soil_{rsl}/bottom200.asc'))
     topsoil20, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'soil_{rsl}/surface20.asc'))
     lowsoil20, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'soil_{rsl}/bottom20.asc'))
-    
+
+    # syke
+    drainedlands, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'syke_{rsl}/peatland_drainage.asc'))
+
+    print('REMEMBER THERE ARE COUPLE OF HARDCODED BITS FOR FIRE MODEL!!!')
+    rsl = '32_noroads'
     # LUKE VMI maps
     # spruce
     bmleaf_spruce, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'vmi_{rsl}/bm_kuusi_neulaset_vmi1x_1721.asc')) # 10kg/ha
@@ -122,9 +127,6 @@ def create_catchment(fpath,
     sitetype, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'vmi_{rsl}/kasvupaikka_vmi1x_1721.asc')) # [1-10]
     forestsoilclass, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'vmi_{rsl}/maaluokka_vmi1x_1721.asc')) # forestry soil class [1-3]
     vol, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'vmi_{rsl}/tilavuus_vmi1x_1721.asc'))  # total volume [m3 ha-1]
-
-    # syke
-    drainedlands, _, _, _, _ = read_AsciiGrid(os.path.join(fpath, f'syke_{rsl}/peatland_drainage.asc'))
     
     # catchment mask cmask ==1, np.NaN outside
     #cmask[np.isfinite(cmask)] = 1.0
@@ -438,7 +440,19 @@ def create_catchment(fpath,
     sitetype[ix_n] = nofor['site']
     fraclass[ix_n] = nofor['site']
     sitetype_comb[ix_n] = nofor['site']
-    
+
+    roads_to_zero = True
+    if roads_to_zero:
+        print('roads assigned to zero')
+        stand_density[road == 1.0] = 0.0
+        age[road == 1.0] = 0.0
+        height[road == 1.0] = 0.0
+        cd[road == 1.0] = 0.0
+        ba[road == 1.0] = 0.0
+        LAI_spruce[road == 1.0] = 0.0
+        LAI_pine[road == 1.0] = 0.0
+        LAI_decid[road == 1.0] = 0.0
+
     '''
     maintype[ix_t] = opeatl['site']
     sitetype[ix_t] = opeatl['site']

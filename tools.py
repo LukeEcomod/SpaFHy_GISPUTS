@@ -5,11 +5,18 @@ Created on Mon Nov 28 10:05:11 2022
 @author: janousu
 """
 
+# basic packages
 import os
 import glob
 import urllib
-import rasterio
 from numpy import newaxis
+import xarray as xr
+import numpy as np
+import pandas as pd
+import warnings
+
+# rasterio
+import rasterio
 import rasterio.plot
 from rasterio import features
 from rasterio.windows import from_bounds
@@ -18,17 +25,18 @@ from rasterio.enums import Resampling
 from rasterio.mask import mask
 from rasterio.fill import fillnodata
 from rasterio.warp import reproject, Resampling, calculate_default_transform
-import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
-import xarray as xr
-import numpy as np
+
+# gis
 from pysheds.grid import Grid
 from scipy import ndimage
-import pandas as pd
-from matplotlib import colors
-import warnings
 import geopandas as gpd
 from rasterio.crs import CRS
+
+# plotting
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+from matplotlib import colors
+
 
 def dem_from_mml(out_fd, subset, apikey, layer='korkeusmalli_2m', form='image/tiff', scalefactor=0.125, plot=True, save_in='asc'):
 
@@ -429,7 +437,7 @@ def orto_from_mml(outpath, subset, layer='ortokuva_vari', form='image/tiff', sca
 
     return raster_dem, out_fp
 
-def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search_distance=2, resample=False, plot=True, save_in='geotiff'):
+def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, use_center=None, max_search_distance=2, resample=False, plot=True, save_in='geotiff'):
     '''
     Downloads VMI data (all layers 'all' or one given layer e.g. 'kasvupaikka_vmi1x_1721.img') 
     from given file directory (fd) for a given subset area
@@ -528,12 +536,21 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
             elif interpolate == 2:
                 with rasterio.open(out_fp, 'r+') as src_new:
                         data = src_new.read(1)
-                        data_filled = interpolate_over_mask(data=data, mask=data_mask)
+                        data_filled = interpolate_over_mask(data=data, mask=data_mask, use_center=use_center)
         
                 with rasterio.Env():
-                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=True) as dst_new:
+                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=False) as dst_new:
                         src_new = dst_new.write(data_filled, 1)         
 
+            elif interpolate == 3: # does not interpolate but assigns non_land as zeros
+                with rasterio.open(out_fp, 'r+') as src_new:
+                        data = src_new.read(1)
+                        data[data_mask == 32767] = 0.0
+        
+                with rasterio.Env():
+                    with rasterio.open(out_fp, 'w', **out_meta, force_cellsize=False) as dst_new:
+                        src_new = dst_new.write(data, 1)    
+                        
             if resample:
                 with rasterio.open(out_fp) as src_new:
                     # resample data to target shape
@@ -577,11 +594,21 @@ def vmi_from_puhti(fd, subset, out_fd, layer='all', interpolate=None, max_search
             raster = rasterio.open(out_fp)
             show(raster, vmax=100)
 
-def interpolate_over_mask(data, mask):
-    '''
-    Interpolates data raster only over a given mask
-    First assigns data to zero where mask exist, then uses 4-neighbors (and the center 0's)
-    '''
+
+def interpolate_over_mask(data, mask, use_center=None):
+    """
+    Interpolates data raster only over a given mask.
+    Optionally includes the center cell in the interpolation.
+    
+    Parameters:
+        data (np.ndarray): 2D array of data to be interpolated.
+        mask (np.ndarray): 2D mask array where values > 1 indicate regions to interpolate.
+        use_center (bool): Whether to include the center cell (0 in masked region) in interpolation.
+        
+    Returns:
+        np.ndarray: Interpolated data array.
+    """
+    
     i_mask = np.where(mask > 1) # = x,y
     temp_data = data.copy()
     temp_data[mask > 0] = 0
@@ -599,8 +626,15 @@ def interpolate_over_mask(data, mask):
     north = tuple((i_mask[0], a_n))
     south = tuple((i_mask[0], a_s))
     new_data = temp_data.copy()
-    new_data[mask > 1] = np.mean([temp_data[i_mask], temp_data[east], temp_data[west], temp_data[north], temp_data[south]], axis=0)
     
+    if use_center == True:
+        print('center cell USED in interpolation')
+        new_data[mask > 1] = np.mean([temp_data[i_mask], temp_data[east], temp_data[west], temp_data[north], temp_data[south]], axis=0)
+        
+    elif use_center == False:
+        print('center cell NOT USED in interpolation')
+        new_data[mask > 1] = np.mean([temp_data[east], temp_data[west], temp_data[north], temp_data[south]], axis=0)
+
     return new_data
 
 
